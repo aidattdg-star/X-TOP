@@ -1,0 +1,182 @@
+import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+type Block = { tweet_url: string; account_ids: string[] };
+
+export type MassEngageAction = "like" | "retweet" | "comment";
+
+export type MassEngageInput = {
+  blocks: Block[];
+  // "Posts entre as contas": cada source posta seu último tweet, engagers fazem RT/like
+  source_account_ids: string[];
+  engager_account_ids: string[];
+  actions: MassEngageAction[];
+  // Texto do comentário (suporta spintax {a|b} e variantes com |||). Usado quando actions inclui "comment".
+  comment_text?: string;
+  min_minutes: number;
+  max_minutes: number;
+};
+
+function parseTweetId(url: string): string | null {
+  const m = url.match(/status\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+function randBetween(min: number, max: number) {
+  return Math.random() * (max - min) + min;
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+export const runMassEngage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: MassEngageInput) => input)
+  .handler(async ({ data, context }) => {
+    const minMin = Math.max(0.1, Number(data.min_minutes) || 2);
+    const maxMin = Math.max(minMin, Number(data.max_minutes) || 10);
+    const actions = (data.actions?.length ? data.actions : ["like", "retweet"]) as MassEngageAction[];
+    const commentText = String(data.comment_text ?? "").trim();
+    if (actions.includes("comment") && !commentText) {
+      throw new Error("Comentar está ativo mas o texto do comentário está vazio.");
+    }
+
+    // Targets: lista de { tweet_id, engager_account_id }
+    const targets: Array<{ tweet_id: string; account_id: string; label: string }> = [];
+
+    // 1) Blocos manuais
+    for (const b of data.blocks ?? []) {
+      const id = parseTweetId(b.tweet_url);
+      if (!id) continue;
+      for (const accId of b.account_ids ?? []) {
+        targets.push({ tweet_id: id, account_id: accId, label: `block:${id}` });
+      }
+    }
+
+    // 2) Posts entre contas — buscar último tweet de cada source via tokens próprios
+    if (data.source_account_ids?.length && data.engager_account_ids?.length) {
+      const { data: sources } = await context.supabase
+        .from("twitter_accounts")
+        .select("id, username, auth_tokens, proxy_id")
+        .in("id", data.source_account_ids);
+
+      const { getUserIdByScreenName, getUserRecentTweets, buildDispatcher } = await import(
+        "@/lib/twitter-client.server"
+      );
+
+      for (const src of sources ?? []) {
+        const tokens = src.auth_tokens as any;
+        if (!tokens?.ct0 || !tokens?.auth_token) continue;
+        try {
+          let proxy: any = null;
+          if (src.proxy_id) {
+            const { data: p } = await context.supabase
+              .from("proxies")
+              .select("ip, port, username, password")
+              .eq("id", src.proxy_id)
+              .maybeSingle();
+            proxy = p;
+          }
+          const dispatcher = buildDispatcher(proxy);
+          const userId = await getUserIdByScreenName(tokens, src.username, dispatcher);
+          const tweets = await getUserRecentTweets(tokens, userId, 5, dispatcher);
+          const latest = tweets[0];
+          if (!latest) continue;
+          for (const accId of data.engager_account_ids) {
+            if (accId === src.id) continue; // não engaja no próprio
+            targets.push({
+              tweet_id: latest.id,
+              account_id: accId,
+              label: `@${src.username}`,
+            });
+          }
+        } catch {
+          // ignora falhas de leitura individuais
+        }
+      }
+    }
+
+    if (!targets.length) throw new Error("Nenhum alvo válido para engajar.");
+
+    // 3) Criar flow container
+    const { data: flow, error: flowErr } = await context.supabase
+      .from("automation_flows")
+      .insert({
+        user_id: context.userId,
+        name: `Mass RT & Like — ${new Date().toLocaleString("pt-BR")}`,
+        description: `${targets.length} engajamento(s) agendado(s)`,
+        status: "draft",
+        react_flow_data: { nodes: [], edges: [] },
+        account_ids: [],
+      })
+      .select("id")
+      .single();
+    if (flowErr || !flow) throw new Error(`Falha ao criar flow: ${flowErr?.message}`);
+
+    // 4) Agendamento humanizado: por conta, acumula delays randômicos entre minMin e maxMin
+    const perAccountOffset = new Map<string, number>();
+    const rows: any[] = [];
+    const baseTime = Date.now();
+    const shuffled = shuffle(targets);
+
+    for (const t of shuffled) {
+      for (const act of shuffle(actions)) {
+        const cur = perAccountOffset.get(t.account_id) ?? randBetween(0, minMin * 60_000);
+        const delta = randBetween(minMin * 60_000, maxMin * 60_000);
+        const next = cur + delta;
+        perAccountOffset.set(t.account_id, next);
+        const isComment = act === "comment";
+        rows.push({
+          user_id: context.userId,
+          flow_id: flow.id,
+          twitter_account_id: t.account_id,
+          action_type: isComment ? "action.comment" : "action.mass_engage",
+          payload: {
+            config: isComment
+              ? {
+                  target_mode: "by_id",
+                  tweet_id: t.tweet_id,
+                  text: commentText,
+                  source: t.label,
+                }
+              : {
+                  action_type: act,
+                  target_mode: "by_id",
+                  tweet_id: t.tweet_id,
+                  source: t.label,
+                },
+          },
+          scheduled_for: new Date(baseTime + next).toISOString(),
+          status: "pending",
+        });
+      }
+    }
+
+    // Insert em lotes para evitar payload gigante
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      const { error: insErr } = await context.supabase.from("execution_queue").insert(slice);
+      if (insErr) throw new Error(`Falha ao enfileirar (${i}): ${insErr.message}`);
+    }
+
+    await context.supabase.from("execution_logs").insert({
+      user_id: context.userId,
+      flow_id: flow.id,
+      level: "info",
+      message: `Mass RT & Like disparado: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)`,
+    });
+
+    return {
+      flow_id: flow.id,
+      tasks: rows.length,
+      accounts: perAccountOffset.size,
+      targets: targets.length,
+    };
+  });
