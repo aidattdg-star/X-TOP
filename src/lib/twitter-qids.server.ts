@@ -27,7 +27,7 @@ const FALLBACK: Record<string, string> = {
 const SOURCE_URL =
   "https://raw.githubusercontent.com/fa0311/TwitterInternalAPIDocument/master/docs/json/GraphQL.json";
 
-let overrides: Record<string, string> = {};
+const overrides: Record<string, string> = {};
 let lastRefresh = 0;
 let inflight: Promise<void> | null = null;
 const MIN_REFRESH_INTERVAL_MS = 60_000; // no máx 1 refresh por minuto
