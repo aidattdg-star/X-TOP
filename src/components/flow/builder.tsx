@@ -20,16 +20,50 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { nodeTypes, NODE_LIBRARY, type NodeKind, getNodeMeta } from "./nodes";
 import { edgeTypes } from "./edges";
-import { PropertiesPanel, CronIntervalInput } from "./properties-panel";
+import { PropertiesPanel } from "./properties-panel";
 import { TestNodeDialog } from "./test-node-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Plus } from "lucide-react";
+import { ArrowLeft, Save, Plus, Clock, FileText, Users, Search, Dice5, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 let nodeIdCounter = 1;
 const genId = () => `n${Date.now()}_${nodeIdCounter++}`;
+
+// ---- Agenda humanizada: conversões minutos <-> cron base ----
+function minutesToCron(mins: number): string {
+  const m = Math.max(1, Math.round(mins));
+  if (m % 1440 === 0) return `0 0 */${m / 1440} * *`;
+  if (m % 60 === 0) return `0 */${m / 60} * * *`;
+  return `*/${m} * * * *`;
+}
+function cronToMinutes(expr: string): number {
+  const e = (expr || "").trim();
+  let m;
+  if ((m = e.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/))) return Math.max(1, +m[1]);
+  if ((m = e.match(/^0\s+\*\/(\d+)\s+\*\s+\*\s+\*$/))) return Math.max(1, +m[1]) * 60;
+  if ((m = e.match(/^0\s+0\s+\*\/(\d+)\s+\*\s+\*$/))) return Math.max(1, +m[1]) * 1440;
+  if (e === "0 * * * *") return 60;
+  if (e === "0 0 * * *") return 1440;
+  return 60;
+}
+// Formata minutos em texto humano (ex.: 90 -> "1 h 30 min").
+function humanMinutes(mins: number): string {
+  const m = Math.max(1, Math.round(mins));
+  if (m < 60) return `${m} min`;
+  if (m % 60 === 0) return `${m / 60} h`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+const SCHEDULE_PRESETS = [
+  { label: "Rápido", min: 1, max: 3 },
+  { label: "Ágil", min: 5, max: 15 },
+  { label: "Normal", min: 15, max: 45 },
+  { label: "Calmo", min: 60, max: 180 },
+  { label: "Lento", min: 240, max: 720 },
+];
 
 const DEFAULT_EDGE_OPTIONS = {
   type: "deletable",
@@ -55,6 +89,9 @@ function BuilderInner({ flowId }: { flowId?: string }) {
   const [name, setName] = useState("Novo fluxo");
   const [description, setDescription] = useState("");
   const [interval, setInterval] = useState("0 */1 * * *");
+  // Agenda humanizada: faixa aleatória (min–max). Guardada em minutos.
+  const [schedMin, setSchedMin] = useState(15);
+  const [schedMax, setSchedMax] = useState(45);
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [testNodeId, setTestNodeId] = useState<string | null>(null);
@@ -100,6 +137,14 @@ function BuilderInner({ flowId }: { flowId?: string }) {
       setAccountIds(data.account_ids || []);
       const rf = data.react_flow_data as any;
       setNodes((rf?.nodes ?? []) as Node[]);
+
+      // Recupera a faixa humanizada: do nó cron (interval_min/max) ou do intervalo salvo.
+      const cronCfg = (rf?.nodes ?? []).find((n: any) => n.data?.kind === "trigger.cron")?.data?.config ?? {};
+      const base = cronToMinutes(cronCfg.cron || data.execution_interval || "0 */1 * * *");
+      const lo = Number(cronCfg.interval_min) || Math.max(1, Math.round(base * 0.7));
+      const hi = Number(cronCfg.interval_max) || Math.max(lo, Math.round(base * 1.3));
+      setSchedMin(lo);
+      setSchedMax(hi);
       const loaded = (rf?.edges ?? []) as Edge[];
       setEdges(loaded.map((e) => ({ ...DEFAULT_EDGE_OPTIONS, ...e, type: "deletable" })));
 
@@ -135,6 +180,23 @@ function BuilderInner({ flowId }: { flowId?: string }) {
     setEdges((es) => es.filter((e) => e.source !== id && e.target !== id));
     setSelectedId(null);
   };
+
+  // Aplica a faixa humanizada: estado + intervalo base + config do nó cron (se existir).
+  const applySchedule = useCallback((lo: number, hi: number) => {
+    const min = Math.max(1, Math.round(lo));
+    const max = Math.max(min, Math.round(hi));
+    setSchedMin(min);
+    setSchedMax(max);
+    const baseCron = minutesToCron(min); // base de cadência; o worker sorteia entre min–max
+    setInterval(baseCron);
+    setNodes((ns) =>
+      ns.map((n) =>
+        n.data?.kind === "trigger.cron"
+          ? { ...n, data: { ...n.data, config: { ...(n.data.config ?? {}), cron: baseCron, interval_min: min, interval_max: max } } }
+          : n,
+      ),
+    );
+  }, []);
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId]);
 
@@ -269,42 +331,38 @@ function BuilderInner({ flowId }: { flowId?: string }) {
             )}
           </div>
 
-          <div className="border-t border-border bg-surface p-5">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Intervalo</Label>
-                <div className="mt-1.5">
-                  <CronIntervalInput value={interval || "*/15 * * * *"} onChange={setInterval} />
-                </div>
+          <div className="border-t border-border bg-surface px-6 py-5">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-6 gap-y-5">
+              {/* Frequência humanizada */}
+              <div className="lg:col-span-5">
+                <BarLabel icon={Clock}>Com que frequência rodar</BarLabel>
+                <HumanSchedule
+                  min={schedMin}
+                  max={schedMax}
+                  onChange={applySchedule}
+                />
               </div>
-              <div>
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Descrição</Label>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1.5 h-10" />
+
+              {/* Descrição */}
+              <div className="lg:col-span-3">
+                <BarLabel icon={FileText}>Descrição <span className="text-muted-foreground/60 normal-case tracking-normal">(opcional)</span></BarLabel>
+                <Input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Ex.: aquece contas do lote 1"
+                  className="mt-2 h-10"
+                />
+                <p className="mt-1.5 text-[11px] text-muted-foreground">Só pra você se organizar. Não afeta o robô.</p>
               </div>
-              <div>
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Contas executoras ({accountIds.length})
-                </Label>
-                <div className="mt-1.5 max-h-24 overflow-auto border border-input rounded-md p-2 bg-background">
-                  {(!accounts || accounts.length === 0) && (
-                    <p className="text-xs text-muted-foreground">Nenhuma conta. <Link to="/accounts" className="underline">Cadastrar</Link></p>
-                  )}
-                  {accounts?.map((a) => (
-                    <label key={a.id} className="flex items-center gap-2 py-0.5 text-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={accountIds.includes(a.id)}
-                        onChange={(e) =>
-                          setAccountIds((prev) =>
-                            e.target.checked ? [...prev, a.id] : prev.filter((id) => id !== a.id),
-                          )
-                        }
-                      />
-                      <span className="text-foreground">@{a.username}</span>
-                      {a.display_name && <span className="text-muted-foreground truncate">· {a.display_name}</span>}
-                    </label>
-                  ))}
-                </div>
+
+              {/* Contas executoras */}
+              <div className="lg:col-span-4">
+                <BarLabel icon={Users}>Quais contas vão executar</BarLabel>
+                <AccountPicker
+                  accounts={accounts ?? []}
+                  selected={accountIds}
+                  onChange={setAccountIds}
+                />
               </div>
             </div>
           </div>
@@ -328,6 +386,192 @@ function BuilderInner({ flowId }: { flowId?: string }) {
         accounts={accounts ?? undefined}
         defaultAccountIds={accountIds}
       />
+    </div>
+  );
+}
+
+function BarLabel({ icon: Icon, children }: { icon: typeof Clock; children: React.ReactNode }) {
+  return (
+    <Label className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+      <Icon className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
+      {children}
+    </Label>
+  );
+}
+
+/** Randomizador de tempo humanizado: faixa "de X a Y" + presets + frase explicativa. */
+function HumanSchedule({
+  min, max, onChange,
+}: { min: number; max: number; onChange: (lo: number, hi: number) => void }) {
+  // Unidade de exibição: se ambos são múltiplos de 60, mostra em horas.
+  const useHours = min >= 60 && max >= 60 && min % 60 === 0 && max % 60 === 0;
+  const factor = useHours ? 60 : 1;
+  const unit: "min" | "h" = useHours ? "h" : "min";
+  const dispMin = Math.round(min / factor);
+  const dispMax = Math.round(max / factor);
+
+  const setUnit = (u: "min" | "h") => {
+    const f = u === "h" ? 60 : 1;
+    onChange(Math.max(1, dispMin * f), Math.max(dispMin * f, dispMax * f));
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-background/60 p-3 space-y-3">
+      {/* Presets */}
+      <div className="flex flex-wrap gap-1.5">
+        {SCHEDULE_PRESETS.map((p) => {
+          const active = min === p.min && max === p.max;
+          return (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => onChange(p.min, p.max)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border",
+                active
+                  ? "border-brand/50 bg-accent text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-brand/30",
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Faixa de–até */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground shrink-0">A cada</span>
+        <Input
+          type="number"
+          min={1}
+          value={dispMin}
+          onChange={(e) => {
+            const v = Math.max(1, Number(e.target.value) || 1) * factor;
+            onChange(v, Math.max(v, max));
+          }}
+          className="h-9 w-16 text-center"
+        />
+        <span className="text-xs text-muted-foreground shrink-0">a</span>
+        <Input
+          type="number"
+          min={1}
+          value={dispMax}
+          onChange={(e) => {
+            const v = Math.max(1, Number(e.target.value) || 1) * factor;
+            onChange(Math.min(min, v), v); // máx = v; se v < mín, mín acompanha
+          }}
+          className="h-9 w-16 text-center"
+        />
+        <select
+          value={unit}
+          onChange={(e) => setUnit(e.target.value as "min" | "h")}
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        >
+          <option value="min">minutos</option>
+          <option value="h">horas</option>
+        </select>
+      </div>
+
+      {/* Frase humana */}
+      <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-relaxed">
+        <Dice5 className="h-3.5 w-3.5 text-brand shrink-0 mt-0.5" strokeWidth={1.75} />
+        <span>
+          O robô espera um tempo <b className="text-foreground">aleatório entre {humanMinutes(min)} e {humanMinutes(max)}</b> a
+          cada ciclo — nunca um valor exato, pra imitar uma pessoa e evitar bloqueio.
+        </span>
+      </p>
+    </div>
+  );
+}
+
+type AccountLite = { id: string; username: string; display_name?: string | null };
+
+/** Seletor de contas com busca, "selecionar todas" e contador. */
+function AccountPicker({
+  accounts, selected, onChange,
+}: { accounts: AccountLite[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const filtered = accounts.filter(
+    (a) =>
+      a.username.toLowerCase().includes(q.toLowerCase()) ||
+      (a.display_name ?? "").toLowerCase().includes(q.toLowerCase()),
+  );
+  const allShownSelected = filtered.length > 0 && filtered.every((a) => selected.includes(a.id));
+
+  const toggle = (id: string) =>
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  const toggleAllShown = () => {
+    if (allShownSelected) onChange(selected.filter((id) => !filtered.some((a) => a.id === id)));
+    else onChange([...new Set([...selected, ...filtered.map((a) => a.id)])]);
+  };
+
+  if (accounts.length === 0) {
+    return (
+      <div className="mt-2 rounded-xl border border-dashed border-border p-4 text-center">
+        <p className="text-xs text-muted-foreground">
+          Nenhuma conta. <Link to="/accounts" className="text-brand underline">Cadastrar conta</Link>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-background/60 overflow-hidden">
+      <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border">
+        <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar @conta…"
+          className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+        />
+        <button
+          type="button"
+          onClick={toggleAllShown}
+          className="text-[11px] text-brand hover:underline shrink-0"
+        >
+          {allShownSelected ? "Limpar" : "Todas"}
+        </button>
+      </div>
+      <div className="max-h-28 overflow-auto p-1.5">
+        {filtered.length === 0 ? (
+          <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">Nenhuma conta encontrada.</p>
+        ) : (
+          filtered.map((a) => {
+            const on = selected.includes(a.id);
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => toggle(a.id)}
+                className={cn(
+                  "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                  on ? "bg-accent" : "hover:bg-accent/50",
+                )}
+              >
+                <span
+                  className={cn(
+                    "grid h-4 w-4 shrink-0 place-items-center rounded border",
+                    on ? "border-brand bg-brand text-white" : "border-input",
+                  )}
+                >
+                  {on && <Check className="h-3 w-3" strokeWidth={3} />}
+                </span>
+                <span className="text-xs text-foreground truncate">@{a.username}</span>
+                {a.display_name && (
+                  <span className="text-[11px] text-muted-foreground truncate">· {a.display_name}</span>
+                )}
+              </button>
+            );
+          })
+        )}
+      </div>
+      <div className="px-2.5 py-1.5 border-t border-border bg-background/40">
+        <p className="text-[11px] text-muted-foreground">
+          <b className="text-foreground tabular-nums">{selected.length}</b> conta(s) selecionada(s)
+        </p>
+      </div>
     </div>
   );
 }
