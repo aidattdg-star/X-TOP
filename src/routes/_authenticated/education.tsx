@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/education")({
@@ -111,18 +112,42 @@ function EducationPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // ----- Ações em massa (todas as contas) -----
+  // ----- Seleção, expansão e ações em massa -----
   const [bulkKw, setBulkKw] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const allAccounts = accountsQ.data ?? [];
+  const scopeCount = selected.size > 0 ? selected.size : allAccounts.length;
+  const scopeLabel = selected.size > 0 ? `${selected.size} selecionada(s)` : `todas (${allAccounts.length})`;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function selectAllToggle() {
+    setSelected((prev) => (prev.size === allAccounts.length ? new Set() : new Set(allAccounts.map((a) => a.id))));
+  }
 
   async function applyToAll(transform: (base: { twitter_account_id: string; user_id: string; enabled: boolean; keywords: string[] }) => any, okMsg: string) {
-    const accs = accountsQ.data ?? [];
-    if (!accs.length) return toast.error("Nenhuma conta cadastrada.");
+    const target = selected.size > 0 ? allAccounts.filter((a) => selected.has(a.id)) : allAccounts;
+    if (!target.length) return toast.error("Nenhuma conta no escopo.");
     setBulkBusy(true);
     try {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Não autenticado");
-      const rows = accs.map((acc) => {
+      const rows = target.map((acc) => {
         const ex = eduByAcc.get(acc.id);
         return transform({
           twitter_account_id: acc.id,
@@ -147,7 +172,7 @@ function EducationPage() {
     if (!v) return;
     applyToAll(
       (base) => ({ ...base, keywords: base.keywords.includes(v) ? base.keywords : [...base.keywords, v] }),
-      `"${v}" adicionada a todas as contas`,
+      `"${v}" adicionada a ${scopeLabel}`,
     );
     setBulkKw("");
   }
@@ -173,52 +198,57 @@ function EducationPage() {
       </div>
 
 
-      {(accountsQ.data ?? []).length > 0 && (
+      {allAccounts.length > 0 && (
         <div className="mt-6 rounded-xl border border-border bg-surface p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
-            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Ações em massa · {(accountsQ.data ?? []).length} conta(s)
-            </p>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                Ações em massa · escopo: <span className="text-foreground">{scopeLabel}</span>
+              </p>
+            </div>
+            <button onClick={selectAllToggle} className="text-xs text-brand hover:underline">
+              {selected.size === allAccounts.length && allAccounts.length > 0 ? "Limpar seleção" : "Selecionar todas"}
+            </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
               value={bulkKw}
               onChange={(e) => setBulkKw(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKeywordToAll())}
-              placeholder="palavra-chave para TODAS as contas"
+              placeholder={`palavra-chave para ${scopeLabel}`}
               className="max-w-xs text-sm"
             />
             <Button onClick={addKeywordToAll} disabled={bulkBusy || !bulkKw.trim()}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar a todas
+              <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar ({scopeCount})
             </Button>
             <span className="mx-1 h-6 w-px bg-border" />
-            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: true }), "Todas as contas ativadas")} disabled={bulkBusy}>
-              Ativar todas
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: true }), `Ativadas: ${scopeLabel}`)} disabled={bulkBusy}>
+              Ativar
             </Button>
-            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), "Todas as contas pausadas")} disabled={bulkBusy}>
-              Pausar todas
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), `Pausadas: ${scopeLabel}`)} disabled={bulkBusy}>
+              Pausar
             </Button>
-            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, keywords: [] }), "Palavras-chave limpas de todas")} disabled={bulkBusy} className="text-muted-foreground">
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, keywords: [] }), `Palavras limpas: ${scopeLabel}`)} disabled={bulkBusy} className="text-muted-foreground">
               <Trash2 className="h-3.5 w-3.5 mr-1" /> Limpar palavras
             </Button>
             {bulkBusy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Aplica de uma vez em todas as contas. "Ativar todas" = liga a educação em todo mundo; a palavra-chave é somada às que já existem.
+            Marque contas nos cards abaixo para agir só nelas — ou deixe nenhuma marcada para agir em <b>todas</b>. A palavra-chave é somada às existentes.
           </p>
         </div>
       )}
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6 space-y-2">
         {accountsQ.isLoading ? (
           <div className="text-center text-sm text-muted-foreground py-10">Carregando…</div>
-        ) : (accountsQ.data ?? []).length === 0 ? (
+        ) : allAccounts.length === 0 ? (
           <div className="border border-border bg-surface rounded-lg p-10 text-center text-sm text-muted-foreground">
             Nenhuma conta cadastrada. Adicione uma conta primeiro em "Contas & Proxies".
           </div>
         ) : (
-          (accountsQ.data ?? []).map((acc) => (
+          allAccounts.map((acc) => (
             <AccountCard
               key={acc.id}
               account={acc}
@@ -226,6 +256,10 @@ function EducationPage() {
               tasks={tasksByAcc.get(acc.id) ?? []}
               onChange={(payload) => upsert.mutate({ account_id: acc.id, ...payload })}
               saving={upsert.isPending}
+              selected={selected.has(acc.id)}
+              onToggleSelect={() => toggleSelect(acc.id)}
+              expanded={expanded.has(acc.id)}
+              onToggleExpand={() => toggleExpand(acc.id)}
             />
           ))
         )}
@@ -235,13 +269,17 @@ function EducationPage() {
 }
 
 function AccountCard({
-  account, edu, tasks, onChange, saving,
+  account, edu, tasks, onChange, saving, selected, onToggleSelect, expanded, onToggleExpand,
 }: {
   account: Account;
   edu: EduRow | null;
   tasks: Task[];
   onChange: (p: { enabled?: boolean; keywords?: string[] }) => void;
   saving: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const enabled = edu?.enabled ?? false;
@@ -265,41 +303,40 @@ function AccountCard({
   }
 
   return (
-    <div className="border border-border bg-surface rounded-lg p-5">
-      <div className="flex items-start gap-4">
-        <div className="flex-1 min-w-0">
+    <div className={cn("border bg-surface rounded-lg", selected ? "border-brand/50" : "border-border")}>
+      <div className="flex items-center gap-3 p-4">
+        <Checkbox checked={selected} onCheckedChange={onToggleSelect} />
+        <button onClick={onToggleExpand} className="text-muted-foreground hover:text-foreground shrink-0">
+          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+        <button onClick={onToggleExpand} className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground">@{account.username}</span>
-            <Badge variant="outline" className="text-[10px] font-normal uppercase tracking-wider">
-              {account.status}
+            <Badge variant="outline" className="text-[10px] font-normal gap-1">
+              {keywords.length} palavra(s)
             </Badge>
-            {edu?.last_run_at && (
-              <span className="text-xs text-muted-foreground">
-                · última varredura {timeAgo(edu.last_run_at)}
-              </span>
-            )}
             {enabled && keywords.length > 0 && (
               <Badge variant="outline" className="text-[10px] font-normal gap-1">
                 <Clock className="h-3 w-3" />
-                próxima varredura {formatNextSweep(edu?.last_run_at)}
+                {formatNextSweep(edu?.last_run_at)}
               </Badge>
             )}
+            <span className="text-xs text-muted-foreground">
+              <span className="text-amber-500">{pending}</span> fila · <span className="text-emerald-500">{done}</span> ok
+              {failed > 0 && <> · <span className="text-destructive">{failed}</span> falhas</>}
+            </span>
           </div>
-
-          <div className="mt-1 flex gap-3 text-xs text-muted-foreground">
-            <span><span className="text-amber-500">{pending}</span> na fila</span>
-            <span><span className="text-emerald-500">{done}</span> curtidos</span>
-            {failed > 0 && <span><span className="text-destructive">{failed}</span> falhas</span>}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+        </button>
+        <div className="flex items-center gap-2 shrink-0">
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          <span className="text-xs text-muted-foreground">{enabled ? "Ativo" : "Pausado"}</span>
+          <span className="text-xs text-muted-foreground hidden sm:inline">{enabled ? "Ativo" : "Pausado"}</span>
           <Switch checked={enabled} onCheckedChange={(v) => onChange({ enabled: v })} />
         </div>
       </div>
 
-      <div className="mt-4 border-t border-border pt-4">
+      {expanded && (
+      <div className="px-4 pb-4">
+      <div className="border-t border-border pt-4">
         <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-2">
           Palavras-chave ({keywords.length})
         </p>
@@ -375,6 +412,8 @@ function AccountCard({
             ))}
           </ul>
         </div>
+      )}
+      </div>
       )}
     </div>
   );
