@@ -9,9 +9,9 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2 } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { testTwitterAccount } from "@/lib/accounts.functions";
+import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +26,10 @@ function AccountsPage() {
   const [testing, setTesting] = useState<string | null>(null);
   const [editingAccount, setEditingAccount] = useState<{ id: string; username: string; display_name: string | null } | null>(null);
   const [testingAcc, setTestingAcc] = useState<string | null>(null);
+  const [postingAcc, setPostingAcc] = useState<string | null>(null);
   const runTestAccount = useServerFn(testTwitterAccount);
   const runTestProxy = useServerFn(testProxyConnection);
+  const runTestPost = useServerFn(testPostTweets);
 
   async function testAccount(id: string) {
     setTestingAcc(id);
@@ -40,6 +42,30 @@ function AccountsPage() {
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
     } finally {
       setTestingAcc(null);
+    }
+  }
+
+  async function postTest(id: string) {
+    setPostingAcc(id);
+    try {
+      const res = await runTestPost({ data: { account_id: id } });
+      const okUrl = res.results.find((r) => r.ok)?.url;
+      if (res.ok_count === res.total) {
+        toast.success(`@${res.username}: ${res.ok_count}/${res.total} postados ✓`, {
+          description: okUrl ? "Clique pra ver no X" : undefined,
+          action: okUrl ? { label: "Ver", onClick: () => window.open(okUrl, "_blank") } : undefined,
+        });
+      } else if (res.ok_count > 0) {
+        toast.warning(`@${res.username}: ${res.ok_count}/${res.total} postados`, {
+          description: res.results.find((r) => !r.ok)?.error?.slice(0, 120),
+        });
+      } else {
+        toast.error(`@${res.username}: falhou — ${res.results[0]?.error?.slice(0, 140) ?? "erro"}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao postar teste");
+    } finally {
+      setPostingAcc(null);
     }
   }
 
@@ -308,6 +334,15 @@ function AccountsPage() {
                 >
                   {testingAcc === acc.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   Testar
+                </button>
+                <button
+                  onClick={() => postTest(acc.id)}
+                  disabled={postingAcc === acc.id}
+                  title="Posta 2 tweets 'hello world' pra confirmar que a conta consegue publicar"
+                  className="text-xs text-foreground hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                >
+                  {postingAcc === acc.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                  Postar teste
                 </button>
                 <button
                   onClick={() => setEditingAccount({ id: acc.id, username: acc.username, display_name: acc.display_name })}

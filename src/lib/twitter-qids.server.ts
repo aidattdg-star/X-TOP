@@ -14,7 +14,7 @@
 // que o X ainda honra (verificados em produção: detecção, like, retweet). Só o
 // SearchTimeline foi aposentado e precisou do ID atual do bundle do X.
 const FALLBACK: Record<string, string> = {
-  CreateTweet: "DQIp0b4mKIciCAZ3bfrwAA",
+  CreateTweet: "R5EPiGHgSqbTYFyozd-gFw",
   CreateRetweet: "ojPdsZsimiJrUGLR1sjUtA",
   FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
   UserByScreenName: "681MIj51w00Aj6dY0GXnHw",
