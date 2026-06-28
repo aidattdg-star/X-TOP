@@ -67,6 +67,32 @@ function AccountsPage() {
     },
   });
 
+  const { data: folders } = useQuery({
+    queryKey: ["account_folders"],
+    queryFn: async () => {
+      const { data } = await supabase.from("account_folders").select("id, name").order("name");
+      return data ?? [];
+    },
+  });
+  const [folderFilter, setFolderFilter] = useState<string>("__all__");
+
+  async function moveAccount(accountId: string, folderId: string | null) {
+    const { error } = await supabase
+      .from("twitter_accounts").update({ folder_id: folderId }).eq("id", accountId);
+    if (error) return toast.error(error.message);
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
+
+  async function deleteFolder(folderId: string, name: string) {
+    if (!confirm(`Apagar a pasta "${name}"? As contas dela voltam para "Sem pasta" (não são removidas).`)) return;
+    const { error } = await supabase.from("account_folders").delete().eq("id", folderId);
+    if (error) return toast.error(error.message);
+    toast.success(`Pasta "${name}" apagada`);
+    if (folderFilter === folderId) setFolderFilter("__all__");
+    qc.invalidateQueries({ queryKey: ["account_folders"] });
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
+
   async function testProxy(id: string) {
     setTesting(id);
     try {
@@ -182,6 +208,37 @@ function AccountsPage() {
           <span className="text-xs text-muted-foreground">{accounts?.length ?? 0} contas</span>
         </div>
 
+        {/* Pastas: filtro */}
+        {accounts && accounts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            <FolderPill
+              label="Todas"
+              count={accounts.length}
+              active={folderFilter === "__all__"}
+              onClick={() => setFolderFilter("__all__")}
+            />
+            <FolderPill
+              label="Sem pasta"
+              count={accounts.filter((a) => !(a as any).folder_id).length}
+              active={folderFilter === "__none__"}
+              onClick={() => setFolderFilter("__none__")}
+            />
+            {(folders ?? []).map((f) => {
+              const n = accounts.filter((a) => (a as any).folder_id === f.id).length;
+              return (
+                <FolderPill
+                  key={f.id}
+                  label={f.name}
+                  count={n}
+                  active={folderFilter === f.id}
+                  onClick={() => setFolderFilter(f.id)}
+                  onDelete={() => deleteFolder(f.id, f.name)}
+                />
+              );
+            })}
+          </div>
+        )}
+
         {(!accounts || accounts.length === 0) && (
           <div className="border border-dashed border-border rounded-lg p-12 text-center">
             <p className="text-sm text-muted-foreground">
@@ -191,7 +248,15 @@ function AccountsPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts?.map((acc) => (
+          {accounts
+            ?.filter((acc) =>
+              folderFilter === "__all__"
+                ? true
+                : folderFilter === "__none__"
+                  ? !(acc as any).folder_id
+                  : (acc as any).folder_id === folderFilter,
+            )
+            .map((acc) => (
             <div key={acc.id} className="border border-border bg-surface rounded-lg p-5">
               <div className="flex items-start gap-3">
                 <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center text-sm font-medium text-foreground overflow-hidden">
@@ -258,9 +323,20 @@ function AccountsPage() {
                     Já verifiquei
                   </button>
                 )}
+                <select
+                  value={(acc as any).folder_id ?? ""}
+                  onChange={(e) => moveAccount(acc.id, e.target.value || null)}
+                  title="Mover para pasta"
+                  className="ml-auto text-xs bg-transparent border border-border rounded px-1.5 py-1 text-muted-foreground hover:text-foreground focus:outline-none max-w-[120px]"
+                >
+                  <option value="">Sem pasta</option>
+                  {(folders ?? []).map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
                 <button
                   onClick={() => deleteAccount(acc.id)}
-                  className="text-xs text-muted-foreground hover:text-destructive ml-auto"
+                  className="text-xs text-muted-foreground hover:text-destructive"
                 >
                   Remover
                 </button>
@@ -471,6 +547,41 @@ function QualityBadge({ quality, latency, fails }: { quality?: string | null; la
         <span className="text-[10px] text-muted-foreground tabular-nums">{latency}ms</span>
       )}
       {(fails ?? 0) >= 5 && <span className="text-[10px] text-red-400">{fails} falhas</span>}
+    </span>
+  );
+}
+
+function FolderPill({
+  label, count, active, onClick, onDelete,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <span
+      className={cn(
+        "group inline-flex items-center gap-1.5 rounded-full border pl-3 pr-2 py-1 text-xs transition-colors cursor-pointer",
+        active
+          ? "border-brand/50 bg-accent text-foreground"
+          : "border-border text-muted-foreground hover:text-foreground hover:border-brand/30",
+      )}
+      onClick={onClick}
+    >
+      {label}
+      <span className="tabular-nums opacity-70">{count}</span>
+      {onDelete && (
+        <button
+          type="button"
+          title="Apagar pasta"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
     </span>
   );
 }

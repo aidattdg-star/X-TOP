@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -100,6 +100,36 @@ export function AccountModal({
   const qc = useQueryClient();
   const [mode, setMode] = useState<"single" | "bulk">("single");
   const [loading, setLoading] = useState(false);
+  const [folderName, setFolderName] = useState("");
+
+  // Pastas existentes (pra sugerir no campo). Criar é só digitar um nome novo.
+  const { data: folders } = useQuery({
+    queryKey: ["account_folders"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("account_folders")
+        .select("id, name")
+        .order("name");
+      return data ?? [];
+    },
+  });
+
+  // Acha a pasta pelo nome ou cria uma nova; devolve o id (ou null se vazio).
+  async function ensureFolderId(userId: string, name: string): Promise<string | null> {
+    const n = name.trim();
+    if (!n) return null;
+    const { data: existing } = await supabase
+      .from("account_folders").select("id").eq("user_id", userId).eq("name", n).maybeSingle();
+    if (existing) return existing.id;
+    const { data: created, error } = await supabase
+      .from("account_folders").insert({ user_id: userId, name: n }).select("id").single();
+    if (error || !created) {
+      const { data: again } = await supabase
+        .from("account_folders").select("id").eq("user_id", userId).eq("name", n).maybeSingle();
+      return again?.id ?? null;
+    }
+    return created.id;
+  }
   const [detecting, setDetecting] = useState(false);
   const [form, setForm] = useState(empty);
   // Bulk
@@ -161,6 +191,7 @@ export function AccountModal({
 
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Não autenticado");
+      const folder_id = await ensureFolderId(u.user.id, folderName);
       const { error } = await supabase.from("twitter_accounts").insert({
         user_id: u.user.id,
         username,
@@ -169,10 +200,12 @@ export function AccountModal({
         proxy_id: form.proxy_id,
         auth_tokens: tokens,
         status: "active",
+        folder_id,
       });
       if (error) throw error;
       toast.success(`Conta @${username} adicionada`);
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_folders"] });
       onOpenChange(false);
       setForm(empty);
       setResolved(null);
@@ -197,6 +230,7 @@ export function AccountModal({
     let ok = 0;
     const fails: string[] = [];
     try {
+      const folder_id = await ensureFolderId(u.user.id, folderName);
       for (let i = 0; i < lines.length; i++) {
         setBulkProgress(Math.round((i / lines.length) * 100));
         const { auth_token, cookie_string, ct0, username } = parseInput(lines[i]);
@@ -213,6 +247,7 @@ export function AccountModal({
               proxy_id,
               auth_tokens: { auth_token, ct0, cookie_string: cookie_string ?? `auth_token=${auth_token}; ct0=${ct0}` },
               status: "active",
+              folder_id,
             });
             if (error) throw new Error(error.message);
             ok++;
@@ -228,6 +263,7 @@ export function AccountModal({
               proxy_id,
               auth_tokens: r.tokens,
               status: "active",
+              folder_id,
             });
             if (error) throw new Error(error.message);
             ok++;
@@ -238,6 +274,7 @@ export function AccountModal({
       }
       setBulkProgress(100);
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+      qc.invalidateQueries({ queryKey: ["account_folders"] });
       if (ok) toast.success(`${ok} conta(s) adicionada(s)${fails.length ? ` · ${fails.length} falha(s)` : ""}`);
       if (fails.length) toast.error(fails.slice(0, 3).join(" • ") + (fails.length > 3 ? "…" : ""));
       if (ok && !fails.length) { onOpenChange(false); setBulkText(""); }
@@ -296,6 +333,7 @@ export function AccountModal({
                 </SelectContent>
               </Select>
             </div>
+            <FolderField value={folderName} onChange={setFolderName} folders={folders ?? []} />
             {(loading || bulkProgress > 0) && (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">{bulkLabel || "Concluído"}</p>
@@ -381,6 +419,8 @@ export function AccountModal({
             </Select>
           </div>
 
+          <FolderField value={folderName} onChange={setFolderName} folders={folders ?? []} />
+
           <DialogFooter className="mt-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
@@ -393,6 +433,33 @@ export function AccountModal({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FolderField({
+  value, onChange, folders,
+}: { value: string; onChange: (v: string) => void; folders: { id: string; name: string }[] }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+        Pasta (opcional)
+      </Label>
+      <Input
+        list="account-folders-list"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Ex.: Lote 28/06 — escolha existente ou digite uma nova"
+        className="h-10"
+      />
+      <datalist id="account-folders-list">
+        {folders.map((f) => (
+          <option key={f.id} value={f.name} />
+        ))}
+      </datalist>
+      <p className="text-xs text-muted-foreground">
+        Digite um nome novo pra criar a pasta, ou escolha uma já existente. Vazio = sem pasta.
+      </p>
+    </div>
   );
 }
 

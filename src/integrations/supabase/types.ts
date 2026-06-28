@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_folders: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       account_education: {
         Row: {
           created_at: string
@@ -492,6 +516,7 @@ export type Database = {
           cooldown_until: string | null
           created_at: string
           display_name: string | null
+          folder_id: string | null
           id: string
           last_used_at: string | null
           limited_at: string | null
@@ -508,6 +533,7 @@ export type Database = {
           cooldown_until?: string | null
           created_at?: string
           display_name?: string | null
+          folder_id?: string | null
           id?: string
           last_used_at?: string | null
           limited_at?: string | null
@@ -524,6 +550,7 @@ export type Database = {
           cooldown_until?: string | null
           created_at?: string
           display_name?: string | null
+          folder_id?: string | null
           id?: string
           last_used_at?: string | null
           limited_at?: string | null
