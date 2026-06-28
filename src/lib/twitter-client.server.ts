@@ -9,7 +9,7 @@ const WEB_BEARER =
 
 const QID = {
   CreateTweet: "DQIp0b4mKIciCAZ3bfrwAA",
-  CreateRetweet: "mbRO74GrOvSfRcJnlMapnQ",
+  CreateRetweet: "ojPdsZsimiJrUGLR1sjUtA",
   FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
   UserByScreenName: "681MIj51w00Aj6dY0GXnHw",
   UserTweets: "RyDU3I9VJtPF-Pnl6vrRlw",
