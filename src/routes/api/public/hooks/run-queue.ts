@@ -258,12 +258,36 @@ async function handle(): Promise<Response> {
         result.succeeded++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await supabaseAdmin
-          .from("execution_queue")
-          .update({ status: "failed", last_error: msg, updated_at: new Date().toISOString() })
-          .eq("id", task.id);
-        await log(supabaseAdmin, task.user_id, task.flow_id, "error", `FAIL ${task.action_type}: ${msg}`, task.twitter_account_id);
-        result.failed++;
+        const attempt = (task.attempts ?? 0) + 1; // valor já persistido no claim
+        const MAX_RETRY = 4;
+        // Bloqueios temporários do X: 226 (parece automatizado), rate limit, "try again later".
+        const isTemporary = /\(226\)|might be automated|try again later|\b429\b|rate.?limit|over capacity|timeout|ECONN|ETIMEDOUT|socket/i.test(msg);
+
+        if (isTemporary && attempt < MAX_RETRY) {
+          // backoff crescente com jitter: ~15, 30, 60 min
+          const baseMin = [15, 30, 60][Math.min(attempt - 1, 2)];
+          const cooldownMin = baseMin + Math.floor(Math.random() * 10);
+          const next = new Date(Date.now() + cooldownMin * 60_000).toISOString();
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({
+              status: "pending",
+              scheduled_for: next,
+              last_error: `Bloqueio temporário (tentativa ${attempt}/${MAX_RETRY}) — re-agendado p/ +${cooldownMin}min: ${msg.slice(0, 160)}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", task.id);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "warn",
+            `RE-AGENDADO ${task.action_type} (+${cooldownMin}min, tent. ${attempt}/${MAX_RETRY}): ${msg.slice(0, 140)}`,
+            task.twitter_account_id);
+        } else {
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "failed", last_error: msg, updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "error", `FAIL ${task.action_type}: ${msg}`, task.twitter_account_id);
+          result.failed++;
+        }
       }
     }
   } catch (e) { result.errors.push(`process: ${(e as Error).message}`); }

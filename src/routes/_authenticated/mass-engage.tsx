@@ -187,6 +187,11 @@ function MassEnagePage() {
           <span className="text-sm font-medium">Instantâneo</span>
           <span className="text-xs text-muted-foreground">— dá RT/Like na hora, sem delays</span>
         </label>
+        {instant && (
+          <p className="text-xs text-amber-400">
+            ⚠️ Rajada sem intervalo aumenta o risco de bloqueio do X (erro 226). Use com proxies residenciais e poucas ações. Bloqueios temporários são re-tentados automaticamente.
+          </p>
+        )}
 
         {!instant && (
           <div className="grid grid-cols-2 gap-4 max-w-sm">
