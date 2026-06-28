@@ -13,6 +13,7 @@ import { Server, AtSign, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount } from "@/lib/accounts.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/accounts")({
   component: AccountsPage,
@@ -85,6 +86,17 @@ function AccountsPage() {
 
   const [testingAll, setTestingAll] = useState(false);
   const [testAllDone, setTestAllDone] = useState(0);
+  const [proxyTab, setProxyTab] = useState<"live" | "die">("live");
+
+  async function deleteAllDieProxies(ids: string[]) {
+    if (!ids.length) return;
+    if (!confirm(`Remover as ${ids.length} proxy(s) mortas (die)? Esta ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from("proxies").delete().in("id", ids);
+    if (error) return toast.error(error.message);
+    toast.success(`${ids.length} proxy(s) morta(s) removida(s)`);
+    qc.invalidateQueries({ queryKey: ["proxies"] });
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
   async function testAllProxies() {
     if (!proxies?.length) return;
     setTestingAll(true);
@@ -232,14 +244,36 @@ function AccountsPage() {
       </section>
 
       <section className="mt-12">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Proxies</h2>
+        {(() => {
+          const all = proxies ?? [];
+          const die = all.filter(isDieProxy);
+          const live = all.filter((p) => !isDieProxy(p));
+          const dieIds = die.map((p) => p.id);
+          const shown = proxyTab === "die" ? die : live;
+          return (
+        <>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">{proxies?.length ?? 0} proxies</span>
-            {!!proxies?.length && (
+            <h2 className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Proxies</h2>
+            <div className="flex gap-1 p-1 rounded-lg bg-muted/40 border border-border">
+              <ProxyTab active={proxyTab === "live"} onClick={() => setProxyTab("live")}>
+                Live ({live.length})
+              </ProxyTab>
+              <ProxyTab active={proxyTab === "die"} onClick={() => setProxyTab("die")}>
+                Die ({die.length})
+              </ProxyTab>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {die.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => deleteAllDieProxies(dieIds)} className="border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground">
+                <Trash2 className="h-3.5 w-3.5 mr-2" /> Remover todas die ({die.length})
+              </Button>
+            )}
+            {!!all.length && (
               <Button variant="outline" size="sm" onClick={testAllProxies} disabled={testingAll}>
                 {testingAll ? (
-                  <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testando {testAllDone}/{proxies.length}</>
+                  <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testando {testAllDone}/{all.length}</>
                 ) : (
                   <>Testar todos</>
                 )}
@@ -249,21 +283,26 @@ function AccountsPage() {
         </div>
 
         {(() => {
-          const bad = (proxies ?? []).filter((p: any) => p.quality === "dead" || p.quality === "datacenter" || (p.fail_count ?? 0) >= 5);
+          const bad = all.filter((p: any) => p.quality === "datacenter" || (p.fail_count ?? 0) >= 5);
           return bad.length > 0 ? (
             <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-              ⚠️ <b>{bad.length} proxy(s) de qualidade ruim</b> (mortos, datacenter ou com muitas falhas). Recomendo trocá-los por proxies residenciais — eles causam bloqueio (226) nas ações de escrita do X.
+              ⚠️ <b>{bad.length} proxy(s) datacenter / com muitas falhas</b> entre as live. Recomendo trocá-los por proxies residenciais — eles causam bloqueio (226) nas ações de escrita do X.
             </div>
           ) : null;
         })()}
 
         <div className="border border-border bg-surface rounded-lg overflow-hidden">
-          {(!proxies || proxies.length === 0) && (
+          {all.length === 0 && (
             <div className="p-10 text-sm text-muted-foreground text-center">
               Nenhum proxy cadastrado.
             </div>
           )}
-          {proxies && proxies.length > 0 && (
+          {all.length > 0 && shown.length === 0 && (
+            <div className="p-10 text-sm text-muted-foreground text-center">
+              {proxyTab === "die" ? "Nenhum proxy morto. 🎉" : "Nenhum proxy live ainda — rode \"Testar todos\"."}
+            </div>
+          )}
+          {shown.length > 0 && (
             <table className="w-full text-sm">
               <thead className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground bg-muted/40">
                 <tr>
@@ -275,7 +314,7 @@ function AccountsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {proxies.map((p) => (
+                {shown.map((p) => (
                   <tr key={p.id}>
                     <td className="px-5 py-3 font-mono text-xs">
                       {p.ip}:{p.port}
@@ -305,6 +344,9 @@ function AccountsPage() {
             </table>
           )}
         </div>
+        </>
+          );
+        })()}
       </section>
 
       {!!accounts?.length && (
@@ -329,6 +371,26 @@ function AccountsPage() {
         />
       )}
     </div>
+  );
+}
+
+// "Die" = proxy morto/inalcançável. "Live" = responde (mesmo que datacenter).
+function isDieProxy(p: any): boolean {
+  return p?.status === "dead" || p?.quality === "dead";
+}
+
+function ProxyTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+        active ? "bg-surface text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
