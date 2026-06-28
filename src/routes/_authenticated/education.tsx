@@ -10,14 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2, ChevronDown, ChevronRight, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/education")({
   component: EducationPage,
 });
 
-type Account = { id: string; username: string; status: string };
+type Account = { id: string; username: string; status: string; warming_until: string | null };
 type EduRow = {
   twitter_account_id: string;
   user_id: string;
@@ -45,7 +45,7 @@ function EducationPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("twitter_accounts")
-        .select("id, username, status")
+        .select("id, username, status, warming_until")
         .order("username");
       if (error) throw error;
       return (data ?? []) as Account[];
@@ -107,8 +107,14 @@ function EducationPage() {
       };
       const { error } = await supabase.from("account_education").upsert(row, { onConflict: "twitter_account_id" });
       if (error) throw error;
+      // Cadeado de aquecimento: ativar = trava 1 dia (se não estiver travada); pausar = destrava.
+      if (payload.enabled === true) await lockForWarming([payload.account_id]);
+      else if (payload.enabled === false) await unlockWarming([payload.account_id]);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["edu_settings"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["edu_settings"] });
+      qc.invalidateQueries({ queryKey: ["edu_accounts"] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -140,7 +146,24 @@ function EducationPage() {
     setSelected((prev) => (prev.size === allAccounts.length ? new Set() : new Set(allAccounts.map((a) => a.id))));
   }
 
-  async function applyToAll(transform: (base: { twitter_account_id: string; user_id: string; enabled: boolean; keywords: string[] }) => any, okMsg: string) {
+  const LOCK_MS = 24 * 3600 * 1000;
+  async function lockForWarming(ids: string[]) {
+    if (!ids.length) return;
+    const until = new Date(Date.now() + LOCK_MS).toISOString();
+    const nowIso = new Date().toISOString();
+    await supabase.from("twitter_accounts").update({ warming_until: until })
+      .in("id", ids).or(`warming_until.is.null,warming_until.lt.${nowIso}`);
+  }
+  async function unlockWarming(ids: string[]) {
+    if (!ids.length) return;
+    await supabase.from("twitter_accounts").update({ warming_until: null }).in("id", ids);
+  }
+
+  async function applyToAll(
+    transform: (base: { twitter_account_id: string; user_id: string; enabled: boolean; keywords: string[] }) => any,
+    okMsg: string,
+    lock?: "lock" | "unlock",
+  ) {
     const target = selected.size > 0 ? allAccounts.filter((a) => selected.has(a.id)) : allAccounts;
     if (!target.length) return toast.error("Nenhuma conta no escopo.");
     setBulkBusy(true);
@@ -158,7 +181,11 @@ function EducationPage() {
       });
       const { error } = await supabase.from("account_education").upsert(rows, { onConflict: "twitter_account_id" });
       if (error) throw error;
+      const ids = target.map((a) => a.id);
+      if (lock === "lock") await lockForWarming(ids);
+      else if (lock === "unlock") await unlockWarming(ids);
       qc.invalidateQueries({ queryKey: ["edu_settings"] });
+      qc.invalidateQueries({ queryKey: ["edu_accounts"] });
       toast.success(okMsg);
     } catch (e: any) {
       toast.error(e.message);
@@ -186,7 +213,7 @@ function EducationPage() {
       <PageHeader
         eyebrow="Aquecimento"
         title="Educar conta"
-        description="A cada 30 min escolhemos uma palavra-chave aleatória, buscamos os tweets mais vistos dos últimos 30 min e curtimos um a cada 2:30 para simular atividade humana real."
+        description="Aquecimento humano: curtidas lentas e espaçadas em tweets reais por palavra-chave. Ao ativar, a conta entra com 🔒 cadeado de 1 dia — só aquece, sem RT/like em massa, monitor ou fluxos. Depois de 24h, libera para uso normal."
       />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-8">
@@ -223,10 +250,10 @@ function EducationPage() {
               <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar ({scopeCount})
             </Button>
             <span className="mx-1 h-6 w-px bg-border" />
-            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: true }), `Ativadas: ${scopeLabel}`)} disabled={bulkBusy}>
-              Ativar
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: true }), `Ativadas + travadas 1 dia: ${scopeLabel}`, "lock")} disabled={bulkBusy}>
+              Ativar (🔒 1 dia)
             </Button>
-            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), `Pausadas: ${scopeLabel}`)} disabled={bulkBusy}>
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), `Pausadas: ${scopeLabel}`, "unlock")} disabled={bulkBusy}>
               Pausar
             </Button>
             <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, keywords: [] }), `Palavras limpas: ${scopeLabel}`)} disabled={bulkBusy} className="text-muted-foreground">
@@ -312,6 +339,11 @@ function AccountCard({
         <button onClick={onToggleExpand} className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground">@{account.username}</span>
+            {account.warming_until && Date.parse(account.warming_until) > Date.now() && (
+              <Badge variant="outline" className="text-[10px] font-normal gap-1 border-brand/40 text-brand">
+                <Lock className="h-3 w-3" /> aquecendo · {lockCountdown(account.warming_until)}
+              </Badge>
+            )}
             <Badge variant="outline" className="text-[10px] font-normal gap-1">
               {keywords.length} palavra(s)
             </Badge>
@@ -447,6 +479,16 @@ function formatViews(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
   return String(n);
+}
+
+function lockCountdown(iso: string): string {
+  const diff = Date.parse(iso) - Date.now();
+  if (diff <= 0) return "liberando";
+  const totalMin = Math.ceil(diff / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h >= 1) return m ? `falta ${h}h${m}min` : `falta ${h}h`;
+  return `falta ${m}min`;
 }
 
 function timeAgo(iso: string): string {

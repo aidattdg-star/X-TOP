@@ -50,6 +50,13 @@ export const runMassEngage = createServerFn({ method: "POST" })
       throw new Error("Comentar está ativo mas o texto do comentário está vazio.");
     }
 
+    // Contas em aquecimento (cadeado) — não participam de ações de spam.
+    const nowIso = new Date().toISOString();
+    const { data: lockedRows } = await context.supabase
+      .from("twitter_accounts").select("id").gt("warming_until", nowIso);
+    const locked = new Set((lockedRows ?? []).map((r: any) => r.id as string));
+    let lockedSkipped = 0;
+
     // Targets: lista de { tweet_id, engager_account_id }
     const targets: Array<{ tweet_id: string; account_id: string; label: string }> = [];
 
@@ -58,6 +65,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
       const id = parseTweetId(b.tweet_url);
       if (!id) continue;
       for (const accId of b.account_ids ?? []) {
+        if (locked.has(accId)) { lockedSkipped++; continue; }
         targets.push({ tweet_id: id, account_id: accId, label: `block:${id}` });
       }
     }
@@ -93,6 +101,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
           if (!latest) continue;
           for (const accId of data.engager_account_ids) {
             if (accId === src.id) continue; // não engaja no próprio
+            if (locked.has(accId)) { lockedSkipped++; continue; }
             targets.push({
               tweet_id: latest.id,
               account_id: accId,
@@ -105,7 +114,13 @@ export const runMassEngage = createServerFn({ method: "POST" })
       }
     }
 
-    if (!targets.length) throw new Error("Nenhum alvo válido para engajar.");
+    if (!targets.length) {
+      throw new Error(
+        lockedSkipped > 0
+          ? `Nenhum alvo: ${lockedSkipped} conta(s) estão em aquecimento (cadeado) e foram puladas.`
+          : "Nenhum alvo válido para engajar.",
+      );
+    }
 
     // 3) Criar flow container
     const { data: flow, error: flowErr } = await context.supabase
@@ -173,7 +188,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
       user_id: context.userId,
       flow_id: flow.id,
       level: "info",
-      message: `Mass RT & Like disparado${instant ? " (instantâneo)" : ""}: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)`,
+      message: `Mass RT & Like disparado${instant ? " (instantâneo)" : ""}: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)${lockedSkipped ? ` · ${lockedSkipped} em aquecimento puladas` : ""}`,
     });
 
     // Instantâneo: aciona o worker na hora pra processar já (cron pega o resto em <=1min).
@@ -200,6 +215,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
       tasks: rows.length,
       accounts: perAccountOffset.size,
       targets: targets.length,
+      locked_skipped: lockedSkipped,
       instant,
     };
   });

@@ -105,13 +105,16 @@ async function handle(): Promise<Response> {
         if (Date.now() - lastMs < thr * 60_000) continue;
       }
 
-      const { data: accs } = accountIds.length
+      const nowIsoChk = new Date().toISOString();
+      const { data: accsRaw } = accountIds.length
         ? await supabaseAdmin
             .from("twitter_accounts")
-            .select("id, username, auth_tokens, proxy_id")
+            .select("id, username, auth_tokens, proxy_id, warming_until")
             .in("id", accountIds)
         : { data: [] as any[] };
-      let validAccountIds = (accs ?? []).map((a: any) => a.id as string);
+      // Exclui contas em aquecimento (cadeado) das ações do monitor.
+      const accs = (accsRaw ?? []).filter((a: any) => !a.warming_until || a.warming_until <= nowIsoChk);
+      let validAccountIds = accs.map((a: any) => a.id as string);
       if (accountIds.length && validAccountIds.length < accountIds.length) {
         await log(supabaseAdmin, flow.user_id, flow.id, "warn",
           `Monitor @${handle}: ${accountIds.length - validAccountIds.length} conta(s) inválida(s) ignorada(s)`);
@@ -266,6 +269,18 @@ async function handle(): Promise<Response> {
         result.succeeded++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
+        // Conta em aquecimento: adia a tarefa pro fim do cadeado, sem contar como falha/tentativa.
+        if (msg.startsWith("__WARMING__:")) {
+          const until = msg.slice("__WARMING__:".length);
+          const next = new Date(Date.parse(until) + Math.floor(Math.random() * 30) * 60_000).toISOString();
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "pending", scheduled_for: next, attempts: task.attempts ?? 0, last_error: "Conta em aquecimento (cadeado) — adiada", updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          continue;
+        }
+
         const attempt = (task.attempts ?? 0) + 1; // valor já persistido no claim
         const MAX_RETRY = 4;
         // Bloqueios temporários do X: 226 (parece automatizado), rate limit, "try again later".
@@ -356,10 +371,15 @@ async function runTask(admin: any, task: any) {
 
   const { data: acc, error } = await admin
     .from("twitter_accounts")
-    .select("id, username, auth_tokens, proxy_id")
+    .select("id, username, auth_tokens, proxy_id, warming_until")
     .eq("id", task.twitter_account_id)
     .maybeSingle();
   if (error || !acc) throw new Error("Conta não encontrada");
+
+  // Cadeado de aquecimento: conta travada não executa ações de spam — adia a tarefa.
+  if (acc.warming_until && Date.parse(acc.warming_until) > Date.now()) {
+    throw new Error(`__WARMING__:${acc.warming_until}`);
+  }
 
   const tokens = { ...(acc.auth_tokens as AuthTokens) };
   if (!tokens?.ct0 || !tokens?.auth_token) throw new Error("Cookies (ct0/auth_token) ausentes na conta");
@@ -711,8 +731,12 @@ async function bumpProxyFail(admin: any, accountId?: string | null): Promise<voi
 
 async function validTwitterAccountIds(admin: any, accountIds: string[]): Promise<string[]> {
   if (!accountIds.length) return [];
-  const { data } = await admin.from("twitter_accounts").select("id").in("id", accountIds);
-  return (data ?? []).map((account: any) => account.id as string);
+  const nowIso = new Date().toISOString();
+  const { data } = await admin.from("twitter_accounts").select("id, warming_until").in("id", accountIds);
+  // Exclui contas em aquecimento (cadeado): não participam de ações de spam.
+  return (data ?? [])
+    .filter((a: any) => !a.warming_until || a.warming_until <= nowIso)
+    .map((a: any) => a.id as string);
 }
 
 function expandActions(flowId: string, userId: string, accountIds: string[], nodes: any[], edges: any[], triggerTweetId?: string | null): any[] {
