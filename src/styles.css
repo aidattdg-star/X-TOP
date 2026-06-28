@@ -202,6 +202,65 @@
   background-image: linear-gradient(135deg, oklch(0.66 0.2 285), oklch(0.6 0.18 255));
 }
 
+/* ---- Liquid glass: frosted panel with gradient hairline + soft depth ---- */
+.liquid-glass {
+  position: relative;
+  background:
+    linear-gradient(157deg, oklch(1 0 0 / 0.07), oklch(1 0 0 / 0.012) 58%),
+    var(--surface);
+  backdrop-filter: blur(26px) saturate(165%);
+  -webkit-backdrop-filter: blur(26px) saturate(165%);
+  border: 1px solid oklch(1 0 0 / 0.07);
+  box-shadow:
+    0 1px 0 0 oklch(1 0 0 / 0.07) inset,
+    0 34px 80px -40px oklch(0.09 0.04 285 / 0.85);
+  transition:
+    transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
+}
+/* gradient hairline border via mask */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    140deg,
+    oklch(0.82 0.14 285 / 0.5),
+    transparent 38%,
+    transparent 62%,
+    oklch(0.78 0.12 215 / 0.32)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.liquid-glass.is-interactive:hover {
+  transform: translateY(-3px);
+  border-color: oklch(0.66 0.2 285 / 0.3);
+  box-shadow:
+    0 1px 0 0 oklch(1 0 0 / 0.1) inset,
+    0 40px 90px -36px oklch(0.66 0.2 285 / 0.45);
+}
+/* moving sheen highlight on hover */
+.liquid-glass .sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(140px 140px at var(--mx, 80%) var(--my, 0%), oklch(1 0 0 / 0.07), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.liquid-glass.is-interactive:hover .sheen {
+  opacity: 1;
+}
+
 /* Custom scrollbars */
 * {
   scrollbar-width: thin;

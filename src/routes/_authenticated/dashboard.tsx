@@ -43,28 +43,30 @@ const ACTION_META: Record<string, { label: string; color: string }> = {
 
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: number | string; hint?: string; icon: LucideIcon }) {
   return (
-    <div className="group relative overflow-hidden border border-border bg-surface p-6 rounded-xl transition-all duration-300 hover:border-brand/30 hover:-translate-y-0.5">
-      <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-brand/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+    <div className="liquid-glass is-interactive group relative overflow-hidden p-6 rounded-2xl">
+      <span className="sheen" />
       <div className="relative flex items-start justify-between">
         <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
-        <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-brand">
-          <Icon className="h-4 w-4" strokeWidth={1.75} />
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] border border-white/10 text-brand">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
         </span>
       </div>
-      <p className="relative mt-4 text-3xl font-light text-foreground tabular-nums">{value}</p>
-      {hint && <p className="relative mt-1 text-xs text-muted-foreground">{hint}</p>}
+      <p className="relative mt-5 text-[2rem] leading-none font-light text-foreground tabular-nums">{value}</p>
+      {hint && <p className="relative mt-2 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
 function Panel({ title, icon: Icon, children, className = "" }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`border border-border bg-surface rounded-xl overflow-hidden ${className}`}>
-      <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
+    <div className={`liquid-glass rounded-2xl overflow-hidden ${className}`}>
+      <div className="relative px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
+        <span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[0.06] border border-white/10">
+          <Icon className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
+        </span>
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{title}</p>
       </div>
-      {children}
+      <div className="relative">{children}</div>
     </div>
   );
 }
@@ -177,7 +179,13 @@ function Dashboard() {
   const maxTop = topAccounts[0]?.value ?? 1;
 
   return (
-    <div className="px-10 py-10 max-w-7xl mx-auto">
+    <div className="relative px-10 py-10 max-w-7xl mx-auto">
+      {/* profundidade ambiente (liquid glass) */}
+      <div className="pointer-events-none absolute -top-24 -left-16 h-80 w-80 rounded-full bg-brand/15 blur-[120px]" />
+      <div className="pointer-events-none absolute top-32 -right-10 h-72 w-72 rounded-full bg-brand-2/12 blur-[120px]" />
+      <div className="pointer-events-none absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-brand/8 blur-[120px]" />
+
+      <div className="relative">
       <PageHeader
         eyebrow="Visão geral"
         title="Painel operacional"
@@ -305,18 +313,18 @@ function Dashboard() {
       </div>
 
       {/* Recent events */}
-      <div className="mt-4 border border-border bg-surface rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
+      <div className="mt-4 liquid-glass rounded-2xl overflow-hidden">
+        <div className="relative px-6 py-4 border-b border-white/[0.06]">
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Últimos eventos</p>
         </div>
-        <div className="divide-y divide-border">
+        <div className="relative divide-y divide-white/[0.05]">
           {(data?.recentLogs ?? []).length === 0 && (
             <div className="px-6 py-12 text-sm text-muted-foreground text-center">
               Nenhum evento registrado ainda.
             </div>
           )}
           {data?.recentLogs.map((log) => (
-            <div key={log.id} className="px-6 py-3 flex items-center justify-between gap-4 transition-colors hover:bg-accent/40">
+            <div key={log.id} className="px-6 py-3 flex items-center justify-between gap-4 transition-colors hover:bg-white/[0.03]">
               <div className="flex items-center gap-3 min-w-0">
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -329,15 +337,16 @@ function Dashboard() {
           ))}
         </div>
       </div>
+      </div>
     </div>
   );
 }
 
 function StatusPill({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="rounded-lg border border-border bg-background/40 p-3">
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.05]">
       <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+        <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
         <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
       </div>
       <p className="mt-1.5 text-2xl font-light text-foreground tabular-nums">{value}</p>
