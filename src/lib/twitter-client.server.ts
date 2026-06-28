@@ -14,7 +14,9 @@ const QID = {
   UserByScreenName: "681MIj51w00Aj6dY0GXnHw",
   UserTweets: "RyDU3I9VJtPF-Pnl6vrRlw",
   Viewer: "XdoyrgGBgyPmBDS7Snsd4A",
-  SearchTimeline: "nK1dw4oV3k4w5TdtcAdSww",
+  // X rotaciona esse ID a cada ~2-4 semanas; se a busca voltar a dar 404,
+  // atualize pelo bundle do X (fonte: fa0311/TwitterInternalAPIDocument).
+  SearchTimeline: "DADfqtK_SEe6XwGAHIo2wA",
 };
 
 let transactionPromise: Promise<ClientTransaction> | null = null;
