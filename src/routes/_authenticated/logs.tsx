@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { RefreshCw, AlertCircle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
+import { RefreshCw, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/logs")({
@@ -169,18 +169,18 @@ function LogsPage() {
             )}
           </div>
 
-          {/* Diagnostic banner: pending tasks but no worker */}
+          {/* Info: tarefas pendentes aguardam horário/worker (não é erro) */}
           {stats.pending > 0 && (
-            <div className="mt-4 flex gap-3 p-4 border border-amber-500/40 bg-amber-500/10 rounded-lg text-sm">
-              <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+            <div className="mt-4 flex gap-3 p-4 border border-border bg-muted/30 rounded-lg text-sm">
+              <Clock className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
               <div>
-                <p className="font-medium text-amber-900 dark:text-amber-200">
-                  Há {stats.pending} tarefa(s) pending e sem nenhuma "processing".
+                <p className="font-medium text-foreground">
+                  {stats.pending} tarefa(s) na fila aguardando.
                 </p>
-                <p className="text-xs text-amber-800/80 dark:text-amber-200/80 mt-1">
-                  Provável causa: nenhum worker está consumindo a fila ainda. As tarefas só executam quando há um processo
-                  rodando que faz <code className="font-mono">SELECT … FROM execution_queue WHERE status='pending'</code> e
-                  chama a API do X. Combine comigo qual estratégia usar (API oficial vs cookies) que eu implemento.
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tarefas pendentes esperam o <b>horário agendado</b> (delays humanizados) ou o próximo ciclo do worker,
+                  que roda <b>automaticamente a cada 1 minuto</b> via pg_cron. Quando o horário chega, são executadas
+                  sozinhas. Isso é normal — não é erro.
                 </p>
               </div>
             </div>
