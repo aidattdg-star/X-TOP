@@ -40,18 +40,22 @@ async function handle(): Promise<Response> {
       const cronTrigger = nodes.find((n: any) => n.data?.kind === "trigger.cron");
       if (!cronTrigger) continue;
 
-      const intervalMin = cronExprToMinutes(
-        (cronTrigger.data?.config?.cron as string) || (flow.execution_interval as string) || "0 */1 * * *",
-      );
-      if (!intervalMin) continue;
+      const cfg = cronTrigger.data?.config ?? {};
+      const baseMin = cronExprToMinutes(
+        (cfg.cron as string) || (flow.execution_interval as string) || "0 */1 * * *",
+      ) ?? 60;
+      // Intervalo humano randomizado: usa min/max se definidos, senão ±30% do cron base.
+      const minM = Math.max(0.5, Number(cfg.interval_min) || baseMin * 0.7);
+      const maxM = Math.max(minM, Number(cfg.interval_max) || baseMin * 1.3);
 
-      const cutoff = new Date(Date.now() - intervalMin * 60_000).toISOString();
-      const { count } = await supabaseAdmin
-        .from("execution_queue")
-        .select("id", { count: "exact", head: true })
-        .eq("flow_id", flow.id)
-        .gte("created_at", cutoff);
-      if ((count ?? 0) > 0) continue;
+      const { data: lastRows } = await supabaseAdmin
+        .from("execution_queue").select("created_at").eq("flow_id", flow.id)
+        .order("created_at", { ascending: false }).limit(1);
+      const lastAt = lastRows?.[0]?.created_at as string | undefined;
+      if (lastAt) {
+        const thr = humanThresholdMin(flow.id + ":" + lastAt, minM, maxM);
+        if (Date.now() - Date.parse(lastAt) < thr * 60_000) continue;
+      }
 
       const accountIds = await validTwitterAccountIds(supabaseAdmin, flow.account_ids ?? []);
       if (flow.account_ids?.length && accountIds.length < flow.account_ids.length) {
@@ -83,9 +87,12 @@ async function handle(): Promise<Response> {
       const monitor = nodes.find((n: any) => n.data?.kind === "trigger.monitor_account");
       if (!monitor) continue;
 
-      const handle = String(monitor.data?.config?.account ?? "").replace(/^@/, "").trim();
+      const mcfg = monitor.data?.config ?? {};
+      const handle = String(mcfg.account ?? "").replace(/^@/, "").trim();
       if (!handle) continue;
-      const intervalMin = Math.max(1, Number(monitor.data?.config?.interval_minutes) || 10);
+      // Intervalo humano randomizado entre min e max (fallback p/ interval_minutes legado).
+      const minM = Math.max(1, Number(mcfg.interval_min) || Number(mcfg.interval_minutes) || 3);
+      const maxM = Math.max(minM, Number(mcfg.interval_max) || minM);
       const accountIds: string[] = flow.account_ids ?? [];
 
       const { data: state } = await supabaseAdmin
@@ -94,7 +101,8 @@ async function handle(): Promise<Response> {
 
       if (state?.last_checked_at) {
         const lastMs = Date.parse(state.last_checked_at);
-        if (Date.now() - lastMs < intervalMin * 60_000) continue;
+        const thr = humanThresholdMin(flow.id + ":" + state.last_checked_at, minM, maxM);
+        if (Date.now() - lastMs < thr * 60_000) continue;
       }
 
       const { data: accs } = accountIds.length
@@ -568,6 +576,14 @@ function hashSeed(seed: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+// Intervalo "humano": valor randomizado (mas estável por ciclo) entre min e max minutos.
+// Evita intervalos redondos (30/60) — cada ciclo gera um gap diferente e quebrado.
+function humanThresholdMin(seed: string, minM: number, maxM: number): number {
+  if (maxM <= minM) return minM;
+  const r = (hashSeed(seed) % 100000) / 100000; // 0..1 determinístico
+  return minM + r * (maxM - minM);
 }
 
 async function resolveTweetId(

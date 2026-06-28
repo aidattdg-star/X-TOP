@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Send, Repeat2, MessageCircle } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +33,9 @@ export function CreateMonitorModal({
   const [targets, setTargets] = useState("");
   const [action, setAction] = useState<ActionType>("action.post_tweet");
   const [text, setText] = useState("");
-  const [intervalMin, setIntervalMin] = useState(1);
+  const [intervalMin, setIntervalMin] = useState(3);
+  const [intervalMax, setIntervalMax] = useState(12);
+  const [testMode, setTestMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -57,6 +59,8 @@ export function CreateMonitorModal({
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Não autenticado");
 
+      const effMin = testMode ? 1 : Math.max(1, intervalMin);
+      const effMax = testMode ? 1 : Math.max(effMin, intervalMax);
       const rows = handles.map((handle) => {
         const triggerId = uid();
         const actionId = uid();
@@ -65,7 +69,7 @@ export function CreateMonitorModal({
         return {
           user_id: u.user!.id,
           name: `Monitor @${handle}`,
-          description: `Monitora @${handle} e ${actionMeta.label.toLowerCase()} ${intervalMin}min`,
+          description: `Monitora @${handle} e ${actionMeta.label.toLowerCase()} (a cada ${effMin}–${effMax}min, humano)`,
           status: "active" as const,
           execution_interval: null,
           account_ids: selected,
@@ -78,7 +82,7 @@ export function CreateMonitorModal({
                 data: {
                   kind: "trigger.monitor_account",
                   label: `Monitorar @${handle}`,
-                  config: { account: handle, interval_minutes: intervalMin, select_mode: "last" },
+                  config: { account: handle, interval_min: effMin, interval_max: effMax, interval_minutes: effMin, select_mode: "last" },
                 },
               },
               {
@@ -113,7 +117,7 @@ export function CreateMonitorModal({
         <DialogHeader>
           <DialogTitle className="font-light text-xl">Novo monitor</DialogTitle>
           <DialogDescription>
-            Suas contas reagem ~{intervalMin}min depois que o alvo postar um tweet novo.
+            Suas contas reagem depois que o alvo postar um tweet novo — checando em intervalos {testMode ? "de teste (~1 min)" : `humanos (${intervalMin}–${intervalMax} min, aleatório)`}.
           </DialogDescription>
         </DialogHeader>
 
@@ -167,14 +171,34 @@ export function CreateMonitorModal({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Intervalo de checagem (min)</Label>
-            <Input
-              type="number" min={1} max={120} value={intervalMin}
-              onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 1))}
-              className="h-10 w-28"
-            />
-            <p className="text-xs text-muted-foreground">Quanto menor, mais rápido reage (mínimo 1 min).</p>
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Intervalo de checagem (humano)</Label>
+            <label className="flex items-center gap-2 cursor-pointer w-fit rounded-lg border border-border bg-muted/30 px-3 py-1.5">
+              <Checkbox checked={testMode} onCheckedChange={(v) => setTestMode(!!v)} />
+              <Zap className="h-3.5 w-3.5 text-brand" />
+              <span className="text-xs font-medium">Modo teste (checa a cada ~1 min)</span>
+            </label>
+            {!testMode && (
+              <div className="flex items-center gap-2">
+                <div>
+                  <span className="text-[10px] text-muted-foreground">mín</span>
+                  <Input type="number" min={1} max={240} value={intervalMin}
+                    onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 1))}
+                    className="h-9 w-20" />
+                </div>
+                <span className="text-muted-foreground pt-4">a</span>
+                <div>
+                  <span className="text-[10px] text-muted-foreground">máx</span>
+                  <Input type="number" min={1} max={240} value={intervalMax}
+                    onChange={(e) => setIntervalMax(Math.max(1, Number(e.target.value) || 1))}
+                    className="h-9 w-20" />
+                </div>
+                <span className="text-xs text-muted-foreground pt-4">minutos (sorteia um valor quebrado a cada ciclo)</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              O app checa em intervalos <b>aleatórios</b> entre mín e máx (nunca redondo, mais humano). No modo teste, ~1 min pra você ver rápido.
+            </p>
           </div>
 
           <div className="space-y-1.5">
