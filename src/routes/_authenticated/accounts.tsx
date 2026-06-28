@@ -83,6 +83,24 @@ function AccountsPage() {
     }
   }
 
+  const [testingAll, setTestingAll] = useState(false);
+  const [testAllDone, setTestAllDone] = useState(0);
+  async function testAllProxies() {
+    if (!proxies?.length) return;
+    setTestingAll(true);
+    setTestAllDone(0);
+    try {
+      for (let i = 0; i < proxies.length; i++) {
+        try { await runTestProxy({ data: { proxy_id: proxies[i].id } }); } catch { /* segue */ }
+        setTestAllDone(i + 1);
+      }
+      qc.invalidateQueries({ queryKey: ["proxies"] });
+      toast.success("Todos os proxies testados");
+    } finally {
+      setTestingAll(false);
+    }
+  }
+
   async function deleteProxy(id: string) {
     if (!confirm("Remover este proxy?")) return;
     const { error } = await supabase.from("proxies").delete().eq("id", id);
@@ -216,8 +234,28 @@ function AccountsPage() {
       <section className="mt-12">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Proxies</h2>
-          <span className="text-xs text-muted-foreground">{proxies?.length ?? 0} proxies</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">{proxies?.length ?? 0} proxies</span>
+            {!!proxies?.length && (
+              <Button variant="outline" size="sm" onClick={testAllProxies} disabled={testingAll}>
+                {testingAll ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testando {testAllDone}/{proxies.length}</>
+                ) : (
+                  <>Testar todos</>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
+
+        {(() => {
+          const bad = (proxies ?? []).filter((p: any) => p.quality === "dead" || p.quality === "datacenter" || (p.fail_count ?? 0) >= 5);
+          return bad.length > 0 ? (
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+              ⚠️ <b>{bad.length} proxy(s) de qualidade ruim</b> (mortos, datacenter ou com muitas falhas). Recomendo trocá-los por proxies residenciais — eles causam bloqueio (226) nas ações de escrita do X.
+            </div>
+          ) : null;
+        })()}
 
         <div className="border border-border bg-surface rounded-lg overflow-hidden">
           {(!proxies || proxies.length === 0) && (
@@ -231,6 +269,7 @@ function AccountsPage() {
                 <tr>
                   <th className="text-left px-5 py-3 font-normal">Endereço</th>
                   <th className="text-left px-5 py-3 font-normal">Usuário</th>
+                  <th className="text-left px-5 py-3 font-normal">Qualidade</th>
                   <th className="text-left px-5 py-3 font-normal">Status</th>
                   <th className="text-right px-5 py-3 font-normal">Ações</th>
                 </tr>
@@ -243,6 +282,7 @@ function AccountsPage() {
                       {p.label && <span className="ml-2 text-muted-foreground">· {p.label}</span>}
                     </td>
                     <td className="px-5 py-3 text-xs text-muted-foreground">{p.username || "—"}</td>
+                    <td className="px-5 py-3"><QualityBadge quality={(p as any).quality} latency={(p as any).latency_ms} fails={(p as any).fail_count} /></td>
                     <td className="px-5 py-3"><StatusDot status={p.status} /></td>
                     <td className="px-5 py-3 text-right space-x-3">
                       <button
@@ -289,6 +329,28 @@ function AccountsPage() {
         />
       )}
     </div>
+  );
+}
+
+function QualityBadge({ quality, latency, fails }: { quality?: string | null; latency?: number | null; fails?: number | null }) {
+  if (!quality) return <span className="text-xs text-muted-foreground">— não testado</span>;
+  const map: Record<string, { label: string; cls: string }> = {
+    good: { label: "Bom", cls: "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" },
+    slow: { label: "Lento", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
+    datacenter: { label: "Datacenter — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
+    dead: { label: "Morto — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
+  };
+  const q = map[quality] ?? { label: quality, cls: "border-border text-muted-foreground" };
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${q.cls}`}>
+        {q.label}
+      </span>
+      {typeof latency === "number" && quality !== "dead" && (
+        <span className="text-[10px] text-muted-foreground tabular-nums">{latency}ms</span>
+      )}
+      {(fails ?? 0) >= 5 && <span className="text-[10px] text-red-400">{fails} falhas</span>}
+    </span>
   );
 }
 

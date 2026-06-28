@@ -1,8 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-// Testa um proxy de verdade: faz uma request HTTPS por ele e mede latência.
-// Roda no servidor (Vercel) via undici ProxyAgent.
+export type ProxyQuality = "good" | "slow" | "datacenter" | "dead";
+
+// Testa um proxy de verdade: faz requests HTTPS/HTTP por ele, mede latência e
+// descobre se o IP de saída é datacenter (ruim p/ escrita no X) ou residencial.
 export const testProxyConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { proxy_id: string }) => input)
@@ -17,9 +19,9 @@ export const testProxyConnection = createServerFn({ method: "POST" })
     const { nodeProxyFetch } = await import("@/lib/proxy-fetch-node.server");
 
     const start = Date.now();
-    let ok = false;
-    let detail = "";
+    let reachable = false;
     let exitIp = "";
+    let detail = "";
     try {
       const res = await nodeProxyFetch(
         "https://api.ipify.org?format=json",
@@ -27,24 +29,51 @@ export const testProxyConnection = createServerFn({ method: "POST" })
         proxy,
       );
       const body = await res.text();
-      ok = res.ok;
-      try {
-        exitIp = (JSON.parse(body)?.ip as string) ?? "";
-      } catch {
-        exitIp = body.slice(0, 40);
-      }
-      if (!ok) detail = `HTTP ${res.status}`;
+      reachable = res.ok;
+      try { exitIp = (JSON.parse(body)?.ip as string) ?? ""; } catch { exitIp = body.slice(0, 40); }
+      if (!reachable) detail = `HTTP ${res.status}`;
     } catch (e) {
-      ok = false;
+      reachable = false;
       detail = e instanceof Error ? e.message : String(e);
     }
     const latency_ms = Date.now() - start;
 
-    const status = ok ? "active" : "dead";
+    // Classificação do IP de saída (datacenter vs residencial/móvel) via ip-api (free, sem chave).
+    let isHosting = false;
+    let isMobile = false;
+    if (reachable) {
+      try {
+        const r2 = await nodeProxyFetch(
+          "http://ip-api.com/json/?fields=status,query,proxy,hosting,mobile",
+          { method: "GET", headers: { accept: "application/json" } },
+          proxy,
+        );
+        const j = JSON.parse(await r2.text());
+        isHosting = !!j?.hosting;
+        isMobile = !!j?.mobile;
+        if (j?.query) exitIp = j.query;
+      } catch {
+        /* classificação é best-effort */
+      }
+    }
+
+    let quality: ProxyQuality;
+    if (!reachable) quality = "dead";
+    else if (isHosting && !isMobile) quality = "datacenter";
+    else if (latency_ms > 4000) quality = "slow";
+    else quality = "good";
+
+    const status = reachable ? "active" : "dead";
     await context.supabase
       .from("proxies")
-      .update({ status, last_tested_at: new Date().toISOString() })
+      .update({
+        status,
+        quality,
+        latency_ms,
+        exit_ip: exitIp || null,
+        last_tested_at: new Date().toISOString(),
+      })
       .eq("id", data.proxy_id);
 
-    return { status, latency_ms, exit_ip: exitIp, detail };
+    return { status, quality, latency_ms, exit_ip: exitIp, detail };
   });

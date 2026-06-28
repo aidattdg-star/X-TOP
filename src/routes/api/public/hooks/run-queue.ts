@@ -262,6 +262,8 @@ async function handle(): Promise<Response> {
         const MAX_RETRY = 4;
         // Bloqueios temporários do X: 226 (parece automatizado), rate limit, "try again later".
         const isTemporary = /\(226\)|might be automated|try again later|\b429\b|rate.?limit|over capacity|timeout|ECONN|ETIMEDOUT|socket/i.test(msg);
+        // Falha provavelmente ligada ao proxy/IP → conta contra a qualidade do proxy.
+        if (isTemporary) await bumpProxyFail(supabaseAdmin, task.twitter_account_id);
 
         if (isTemporary && attempt < MAX_RETRY) {
           // backoff crescente com jitter: ~15, 30, 60 min
@@ -669,6 +671,26 @@ async function findMonitoredHandle(admin: any, flowId: string): Promise<string |
   const monitor = nodes.find((n) => n.data?.kind === "trigger.monitor_account");
   const acc = monitor?.data?.config?.account as string | undefined;
   return acc ? acc.replace(/^@/, "") : null;
+}
+
+// Incrementa o contador de falhas do proxy vinculado à conta (sinaliza proxy ruim).
+// Tolerante: se as colunas de qualidade ainda não existem, ignora.
+async function bumpProxyFail(admin: any, accountId?: string | null): Promise<void> {
+  if (!accountId) return;
+  try {
+    const { data: acc } = await admin
+      .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+    const pid = acc?.proxy_id;
+    if (!pid) return;
+    const { data: px } = await admin
+      .from("proxies").select("fail_count").eq("id", pid).maybeSingle();
+    const next = Number(px?.fail_count ?? 0) + 1;
+    const patch: Record<string, unknown> = { fail_count: next };
+    if (next >= 5) patch.quality = "datacenter"; // muitas falhas = IP provavelmente sinalizado
+    await admin.from("proxies").update(patch).eq("id", pid);
+  } catch {
+    /* colunas de qualidade podem não existir ainda — ignora */
+  }
 }
 
 async function validTwitterAccountIds(admin: any, accountIds: string[]): Promise<string[]> {
