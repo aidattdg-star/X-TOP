@@ -454,7 +454,7 @@ async function runTask(admin: any, task: any) {
       case "action.retweet": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
         await retweet(tokens, id, dispatcher);
-        await setRetweetCooldown(admin, acc.id);
+        await setActionCooldown(admin, acc.id);
         break;
       }
       case "action.comment": {
@@ -475,10 +475,12 @@ async function runTask(admin: any, task: any) {
       case "action.mass_engage": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
         const type = (config.action_type as string) || "like";
-        if (type === "like") await likeTweet(tokens, id, dispatcher);
-        else if (type === "retweet") {
+        if (type === "like") {
+          await likeTweet(tokens, id, dispatcher);
+          await setActionCooldown(admin, acc.id);
+        } else if (type === "retweet") {
           await retweet(tokens, id, dispatcher);
-          await setRetweetCooldown(admin, acc.id);
+          await setActionCooldown(admin, acc.id);
         } else throw new Error(`mass_engage tipo '${type}' não implementado`);
         break;
       }
@@ -784,10 +786,11 @@ async function markAccountLimited(admin: any, accountId?: string | null): Promis
   }
 }
 
-// Após um retweet, a conta entra em "refresh" (cooldown) por 1h: não é reusada
-// pra novos disparos até o tempo passar (humaniza e evita spam de RT).
+// Após RT ou Like, a conta entra em "refresh" (cooldown) por 1h: não é reusada
+// pra novos disparos até o tempo passar (humaniza e evita spam). Comentário NÃO
+// dispara cooldown (fica normal).
 const RT_COOLDOWN_MIN = 60;
-async function setRetweetCooldown(admin: any, accountId?: string | null): Promise<void> {
+async function setActionCooldown(admin: any, accountId?: string | null): Promise<void> {
   if (!accountId) return;
   try {
     await admin
