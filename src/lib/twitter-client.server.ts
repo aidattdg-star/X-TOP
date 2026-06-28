@@ -2,7 +2,7 @@
 // Quando um ProxyInfo é fornecido roteamos via CONNECT+TLS pelo proxy
 // (cloudflare:sockets). Sem proxy, usa fetch nativo do Worker.
 import { ClientTransaction, handleXMigration } from "x-client-transaction-id";
-import { proxyFetch, type ProxyInfo as PFProxyInfo } from "./proxy-fetch.server";
+import { type ProxyInfo as PFProxyInfo } from "./proxy-fetch.server";
 
 const WEB_BEARER =
   "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
@@ -66,7 +66,9 @@ async function doFetch(
   d?: Dispatcher,
 ): Promise<FetchRespLike> {
   if (d) {
-    return await proxyFetch(url, init, d);
+    // Node/Vercel: roteia via undici ProxyAgent (cloudflare:sockets não existe aqui).
+    const { nodeProxyFetch } = await import("./proxy-fetch-node.server");
+    return (await nodeProxyFetch(url, init, d)) as unknown as FetchRespLike;
   }
   const res = await fetch(url, init as RequestInit);
   return res;

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Server, AtSign, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount } from "@/lib/accounts.functions";
+import { testProxyConnection } from "@/lib/proxies.functions";
 
 export const Route = createFileRoute("/_authenticated/accounts")({
   component: AccountsPage,
@@ -25,6 +26,7 @@ function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<{ id: string; username: string; display_name: string | null } | null>(null);
   const [testingAcc, setTestingAcc] = useState<string | null>(null);
   const runTestAccount = useServerFn(testTwitterAccount);
+  const runTestProxy = useServerFn(testProxyConnection);
 
   async function testAccount(id: string) {
     setTestingAcc(id);
@@ -67,11 +69,12 @@ function AccountsPage() {
   async function testProxy(id: string) {
     setTesting(id);
     try {
-      const { error } = await supabase.functions.invoke("proxy-tester", {
-        body: { proxy_id: id },
-      });
-      if (error) throw error;
-      toast.success("Proxy testado");
+      const res = await runTestProxy({ data: { proxy_id: id } });
+      if (res.status === "active") {
+        toast.success(`Proxy OK · ${res.latency_ms}ms${res.exit_ip ? ` · IP ${res.exit_ip}` : ""}`);
+      } else {
+        toast.error(`Proxy falhou${res.detail ? `: ${res.detail}` : ""}`);
+      }
       qc.invalidateQueries({ queryKey: ["proxies"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha no teste");
