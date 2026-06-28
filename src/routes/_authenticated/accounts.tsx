@@ -128,6 +128,17 @@ function AccountsPage() {
     qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
   }
 
+  // Limpa o sinalizador de "conta limitada" depois que você verificou (telefone/captcha).
+  async function clearLimited(id: string) {
+    const { error } = await supabase
+      .from("twitter_accounts")
+      .update({ limited_at: null })
+      .eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Conta desmarcada — pode testar o RT de novo");
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
+
   const [deletingAll, setDeletingAll] = useState(false);
   async function deleteAllAccounts() {
     if (!accounts?.length) return;
@@ -193,6 +204,14 @@ function AccountsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">@{acc.username}</p>
                   <p className="text-xs text-muted-foreground truncate">{acc.display_name || "—"}</p>
+                  {(acc as any).limited_at && (
+                    <span
+                      title="O X aceitou o like mas descartou o RT. Verifique a conta (telefone/captcha) e clique em 'Já verifiquei'."
+                      className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-medium text-amber-400"
+                    >
+                      ⚠ Limitada · verificar
+                    </span>
+                  )}
                 </div>
                 <StatusDot status={acc.status} />
               </div>
@@ -231,6 +250,14 @@ function AccountsPage() {
                 >
                   Editar perfil
                 </button>
+                {(acc as any).limited_at && (
+                  <button
+                    onClick={() => clearLimited(acc.id)}
+                    className="text-xs text-amber-400 hover:underline"
+                  >
+                    Já verifiquei
+                  </button>
+                )}
                 <button
                   onClick={() => deleteAccount(acc.id)}
                   className="text-xs text-muted-foreground hover:text-destructive ml-auto"

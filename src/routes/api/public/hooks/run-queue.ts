@@ -284,6 +284,25 @@ async function handle(): Promise<Response> {
         const attempt = (task.attempts ?? 0) + 1; // valor já persistido no claim
         const MAX_RETRY = 4;
 
+        // Conta limitada/em verificação: X aceitou mas descartou o RT (resposta vazia).
+        // Não adianta repetir — sinaliza a conta pra você verificar (telefone/captcha) e falha.
+        if (msg.startsWith("__RT_LIMITED__")) {
+          await markAccountLimited(supabaseAdmin, task.twitter_account_id);
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({
+              status: "failed",
+              last_error: "Conta limitada/em verificação: X descartou o RT (like funciona, RT não). Verifique a conta (telefone/captcha).",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", task.id);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "warn",
+            "Conta marcada como LIMITADA: o X aceitou mas não retweetou (provável verificação pendente — telefone/captcha). Like funciona, RT não.",
+            task.twitter_account_id);
+          result.failed++;
+          continue;
+        }
+
         // Perfil morto (suspenso/banido/sessão inválida): marca conta + proxy como die e falha de vez.
         if (isProfileDeadError(msg)) {
           await markProfileDead(supabaseAdmin, task.twitter_account_id);
@@ -745,6 +764,21 @@ async function markProfileDead(admin: any, accountId?: string | null): Promise<v
       if (error) await admin.from("proxies").update({ status: "dead" }).eq("id", acc.proxy_id);
     }
   } catch { /* tolera */ }
+}
+
+// Marca a conta como "limitada/em verificação" (X aceita like mas descarta RT).
+// Não mexe no proxy nem bane — só sinaliza pra você verificar (telefone/captcha).
+// Tolerante: se a coluna limited_at ainda não existir, ignora.
+async function markAccountLimited(admin: any, accountId?: string | null): Promise<void> {
+  if (!accountId) return;
+  try {
+    await admin
+      .from("twitter_accounts")
+      .update({ limited_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", accountId);
+  } catch {
+    /* coluna limited_at pode não existir ainda — ignora */
+  }
 }
 
 // Incrementa o contador de falhas do proxy vinculado à conta (sinaliza proxy ruim).

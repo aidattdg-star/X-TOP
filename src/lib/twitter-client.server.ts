@@ -343,6 +343,18 @@ export async function retweet(tokens: AuthTokens, tweetId: string, _d?: Dispatch
   // "You have already retweeted this Tweet" (code 327) = efetivamente já está RT'ado
   const code = json?.errors?.[0]?.code;
   if (code === 327) return { already: true, raw: json };
+  // X devolveu 200 com create_retweet.retweet_results VAZIO ({}), sem erro:
+  // a conta está limitada/em verificação (read-only) — consegue curtir mas o RT é
+  // descartado silenciosamente. Marcamos com um prefixo pro worker sinalizar a conta.
+  const emptyResults =
+    json?.data?.create_retweet &&
+    (!json.data.create_retweet.retweet_results ||
+      Object.keys(json.data.create_retweet.retweet_results).length === 0);
+  if (emptyResults) {
+    throw new Error(
+      `__RT_LIMITED__: X descartou o RT (conta provavelmente limitada/em verificação — like funciona, RT não). Resposta: ${JSON.stringify(json).slice(0, 200)}`,
+    );
+  }
   throw new Error(`Retweet não confirmado pelo X. Resposta: ${JSON.stringify(json).slice(0, 400)}`);
 }
 

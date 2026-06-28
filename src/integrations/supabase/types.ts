@@ -494,6 +494,7 @@ export type Database = {
           display_name: string | null
           id: string
           last_used_at: string | null
+          limited_at: string | null
           profile_picture_url: string | null
           proxy_id: string | null
           status: Database["public"]["Enums"]["twitter_account_status"]
@@ -509,6 +510,7 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_used_at?: string | null
+          limited_at?: string | null
           profile_picture_url?: string | null
           proxy_id?: string | null
           status?: Database["public"]["Enums"]["twitter_account_status"]
@@ -524,6 +526,7 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_used_at?: string | null
+          limited_at?: string | null
           profile_picture_url?: string | null
           proxy_id?: string | null
           status?: Database["public"]["Enums"]["twitter_account_status"]
