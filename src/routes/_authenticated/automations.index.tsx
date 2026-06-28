@@ -40,7 +40,7 @@ function AutomationsPage() {
   }
 
   return (
-    <div className="px-10 py-10 max-w-7xl mx-auto">
+    <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <PageHeader
         eyebrow="Automações"
         title="Fluxos de automação"

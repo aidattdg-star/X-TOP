@@ -84,7 +84,7 @@ function LogsPage() {
   const stats = statsQuery.data ?? { pending: 0, processing: 0, completed: 0, failed: 0 };
 
   return (
-    <div className="px-10 py-10 max-w-7xl mx-auto">
+    <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <div className="flex items-start justify-between">
         <PageHeader
           eyebrow="Observabilidade"
@@ -127,14 +127,14 @@ function LogsPage() {
               Limpar concluídas
             </Button>
           </div>
-          <div className="border border-border bg-surface rounded-lg overflow-hidden">
+          <div className="border border-border bg-surface rounded-lg overflow-x-auto">
             {(!queueQuery.data || queueQuery.data.length === 0) ? (
               <EmptyHint
                 title="Nenhuma tarefa na fila"
                 hint="Quando um trigger dispara, as ações aparecem aqui. Se sua fila está vazia mas o fluxo está ativo, o agendador (pg_cron) provavelmente não está chamando o parser — só roda quando você clica 'Salvar e ativar'."
               />
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground bg-muted/40">
                   <tr>
                     <th className="text-left px-5 py-3 font-normal">Status</th>
@@ -188,11 +188,11 @@ function LogsPage() {
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4">
-          <div className="border border-border bg-surface rounded-lg overflow-hidden">
+          <div className="border border-border bg-surface rounded-lg overflow-x-auto">
             {(!logsQuery.data || logsQuery.data.length === 0) ? (
               <EmptyHint title="Sem eventos" hint="Workers e o parser de fluxos gravam aqui. Se está vazio, nada foi executado." />
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground bg-muted/40">
                   <tr>
                     <th className="text-left px-5 py-3 font-normal">Quando</th>

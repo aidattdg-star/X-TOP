@@ -211,7 +211,7 @@ function AccountsPage() {
   }
 
   return (
-    <div className="px-10 py-10 max-w-7xl mx-auto">
+    <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <PageHeader
         eyebrow="Operação"
         title="Contas & Proxies"
@@ -456,7 +456,8 @@ function AccountsPage() {
             </div>
           )}
           {shown.length > 0 && (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[680px]">
               <thead className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground bg-muted/40">
                 <tr>
                   <th className="text-left px-5 py-3 font-normal">Endereço</th>
@@ -509,6 +510,7 @@ function AccountsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
         </>

@@ -173,7 +173,7 @@ function Dashboard() {
   const name = email ? email.split("@")[0] : "";
 
   return (
-    <div className="relative px-8 lg:px-10 py-9 max-w-7xl mx-auto">
+    <div className="relative px-4 sm:px-6 lg:px-10 py-6 lg:py-9 max-w-7xl mx-auto">
       {/* profundidade ambiente */}
       <div className="pointer-events-none absolute -top-24 -left-16 h-80 w-80 rounded-full bg-brand/15 blur-[120px]" />
       <div className="pointer-events-none absolute top-40 -right-10 h-72 w-72 rounded-full bg-brand-2/12 blur-[120px]" />

@@ -136,7 +136,7 @@ function MassEnagePage() {
   }
 
   return (
-    <div className="px-8 py-8 max-w-5xl mx-auto space-y-6">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-5xl mx-auto space-y-6">
       <header>
         <h1 className="text-2xl font-semibold flex items-center gap-2">
           <Rocket className="h-6 w-6" /> RT & Like em massa

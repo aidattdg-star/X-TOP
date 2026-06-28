@@ -99,7 +99,7 @@ function EditAccountsPage() {
   const profileFolders = folders?.filter((f) => f.category === "profile_picture") ?? [];
 
   return (
-    <div className="px-10 py-10 max-w-7xl mx-auto">
+    <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <PageHeader
         eyebrow="Operação"
         title="Editar contas"
