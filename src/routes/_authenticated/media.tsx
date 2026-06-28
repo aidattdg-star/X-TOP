@@ -206,8 +206,8 @@ function MediaPage() {
   for (const f of folders ?? []) (grouped[f.category] ||= []).push(f);
 
   return (
-    <div className="flex h-[calc(100vh-0px)]">
-      <aside className="w-64 border-r border-border bg-surface p-4 overflow-y-auto">
+    <div className="flex flex-col md:flex-row h-[calc(100vh-0px)]">
+      <aside className="w-full md:w-60 md:shrink-0 max-h-56 md:max-h-none border-b md:border-b-0 md:border-r border-border bg-surface p-4 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Pastas</p>
           <button
@@ -254,7 +254,7 @@ function MediaPage() {
         ))}
       </aside>
 
-      <main className="flex-1 p-6 overflow-y-auto">
+      <main className="flex-1 min-w-0 p-6 overflow-y-auto">
         {selectedFolder ? (
           <>
             <div className="flex items-center justify-between mb-6">
