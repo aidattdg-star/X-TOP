@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle } from "lucide-react";
+import { Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ function MassEnagePage() {
   const [doRetweet, setDoRetweet] = useState(true);
   const [doComment, setDoComment] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [instant, setInstant] = useState(false);
   const [minMin, setMinMin] = useState(2);
   const [maxMin, setMaxMin] = useState(10);
   const [crossEngage, setCrossEngage] = useState(false);
@@ -109,14 +110,18 @@ function MassEnagePage() {
           engager_account_ids: crossEngage ? engagerIds : [],
           actions,
           comment_text: commentText,
+          instant,
           min_minutes: minMin,
           max_minutes: maxMin,
         },
       });
       setProgress(100);
-      setProgressLabel(`Agendado: ${res.tasks} tarefa(s) em ${res.accounts} conta(s)`);
+      const word = instant ? "executando agora" : "agendada(s)";
+      setProgressLabel(`${res.tasks} tarefa(s) ${word} em ${res.accounts} conta(s)`);
       toast.success(
-        `Disparado! ${res.tasks} tarefa(s) agendada(s) em ${res.accounts} conta(s).`,
+        instant
+          ? `Disparo instantâneo! ${res.tasks} ação(ões) sendo executada(s) agora em ${res.accounts} conta(s).`
+          : `Disparado! ${res.tasks} tarefa(s) agendada(s) em ${res.accounts} conta(s).`,
       );
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao disparar");
@@ -176,28 +181,37 @@ function MassEnagePage() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 max-w-sm">
-          <div>
-            <Label className="text-xs">Intervalo mín (min)</Label>
-            <Input
-              type="number"
-              min={0.5}
-              step={0.5}
-              value={minMin}
-              onChange={(e) => setMinMin(Number(e.target.value))}
-            />
+        <label className="flex items-center gap-2 cursor-pointer w-fit rounded-lg border border-border bg-muted/30 px-3 py-2">
+          <Checkbox checked={instant} onCheckedChange={(v) => setInstant(!!v)} />
+          <Zap className="h-4 w-4 text-brand" />
+          <span className="text-sm font-medium">Instantâneo</span>
+          <span className="text-xs text-muted-foreground">— dá RT/Like na hora, sem delays</span>
+        </label>
+
+        {!instant && (
+          <div className="grid grid-cols-2 gap-4 max-w-sm">
+            <div>
+              <Label className="text-xs">Intervalo mín (min)</Label>
+              <Input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={minMin}
+                onChange={(e) => setMinMin(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Intervalo máx (min)</Label>
+              <Input
+                type="number"
+                min={1}
+                step={0.5}
+                value={maxMin}
+                onChange={(e) => setMaxMin(Number(e.target.value))}
+              />
+            </div>
           </div>
-          <div>
-            <Label className="text-xs">Intervalo máx (min)</Label>
-            <Input
-              type="number"
-              min={1}
-              step={0.5}
-              value={maxMin}
-              onChange={(e) => setMaxMin(Number(e.target.value))}
-            />
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Blocos manuais */}

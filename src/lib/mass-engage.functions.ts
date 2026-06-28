@@ -13,6 +13,8 @@ export type MassEngageInput = {
   actions: MassEngageAction[];
   // Texto do comentário (suporta spintax {a|b} e variantes com |||). Usado quando actions inclui "comment".
   comment_text?: string;
+  // Modo instantâneo: agenda tudo para agora e dispara o worker na hora (sem delays).
+  instant?: boolean;
   min_minutes: number;
   max_minutes: number;
 };
@@ -39,8 +41,9 @@ export const runMassEngage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: MassEngageInput) => input)
   .handler(async ({ data, context }) => {
-    const minMin = Math.max(0.1, Number(data.min_minutes) || 2);
-    const maxMin = Math.max(minMin, Number(data.max_minutes) || 10);
+    const instant = !!data.instant;
+    const minMin = instant ? 0 : Math.max(0.1, Number(data.min_minutes) || 2);
+    const maxMin = instant ? 0 : Math.max(minMin, Number(data.max_minutes) || 10);
     const actions = (data.actions?.length ? data.actions : ["like", "retweet"]) as MassEngageAction[];
     const commentText = String(data.comment_text ?? "").trim();
     if (actions.includes("comment") && !commentText) {
@@ -170,13 +173,27 @@ export const runMassEngage = createServerFn({ method: "POST" })
       user_id: context.userId,
       flow_id: flow.id,
       level: "info",
-      message: `Mass RT & Like disparado: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)`,
+      message: `Mass RT & Like disparado${instant ? " (instantâneo)" : ""}: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)`,
     });
+
+    // Instantâneo: aciona o worker na hora pra processar já (cron pega o resto em <=1min).
+    if (instant) {
+      const host = process.env.VERCEL_URL || process.env.SITE_URL || "";
+      if (host) {
+        const baseUrl = host.startsWith("http") ? host : `https://${host}`;
+        try {
+          await fetch(`${baseUrl}/api/public/hooks/run-queue`, { method: "POST" });
+        } catch {
+          /* se falhar, o cron processa em até 1 min */
+        }
+      }
+    }
 
     return {
       flow_id: flow.id,
       tasks: rows.length,
       accounts: perAccountOffset.size,
       targets: targets.length,
+      instant,
     };
   });
