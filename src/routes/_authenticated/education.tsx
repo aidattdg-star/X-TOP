@@ -111,6 +111,47 @@ function EducationPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // ----- Ações em massa (todas as contas) -----
+  const [bulkKw, setBulkKw] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  async function applyToAll(transform: (base: { twitter_account_id: string; user_id: string; enabled: boolean; keywords: string[] }) => any, okMsg: string) {
+    const accs = accountsQ.data ?? [];
+    if (!accs.length) return toast.error("Nenhuma conta cadastrada.");
+    setBulkBusy(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("Não autenticado");
+      const rows = accs.map((acc) => {
+        const ex = eduByAcc.get(acc.id);
+        return transform({
+          twitter_account_id: acc.id,
+          user_id: u.user!.id,
+          enabled: ex?.enabled ?? true,
+          keywords: ex?.keywords ?? [],
+        });
+      });
+      const { error } = await supabase.from("account_education").upsert(rows, { onConflict: "twitter_account_id" });
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["edu_settings"] });
+      toast.success(okMsg);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function addKeywordToAll() {
+    const v = bulkKw.trim();
+    if (!v) return;
+    applyToAll(
+      (base) => ({ ...base, keywords: base.keywords.includes(v) ? base.keywords : [...base.keywords, v] }),
+      `"${v}" adicionada a todas as contas`,
+    );
+    setBulkKw("");
+  }
+
   const totalTasks = tasksQ.data?.length ?? 0;
   const pendingTasks = (tasksQ.data ?? []).filter((t) => t.status === "pending").length;
   const completedTasks = (tasksQ.data ?? []).filter((t) => t.status === "completed").length;
@@ -132,7 +173,44 @@ function EducationPage() {
       </div>
 
 
-      <div className="mt-8 space-y-3">
+      {(accountsQ.data ?? []).length > 0 && (
+        <div className="mt-6 rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Ações em massa · {(accountsQ.data ?? []).length} conta(s)
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={bulkKw}
+              onChange={(e) => setBulkKw(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKeywordToAll())}
+              placeholder="palavra-chave para TODAS as contas"
+              className="max-w-xs text-sm"
+            />
+            <Button onClick={addKeywordToAll} disabled={bulkBusy || !bulkKw.trim()}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar a todas
+            </Button>
+            <span className="mx-1 h-6 w-px bg-border" />
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: true }), "Todas as contas ativadas")} disabled={bulkBusy}>
+              Ativar todas
+            </Button>
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), "Todas as contas pausadas")} disabled={bulkBusy}>
+              Pausar todas
+            </Button>
+            <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, keywords: [] }), "Palavras-chave limpas de todas")} disabled={bulkBusy} className="text-muted-foreground">
+              <Trash2 className="h-3.5 w-3.5 mr-1" /> Limpar palavras
+            </Button>
+            {bulkBusy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Aplica de uma vez em todas as contas. "Ativar todas" = liga a educação em todo mundo; a palavra-chave é somada às que já existem.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-6 space-y-3">
         {accountsQ.isLoading ? (
           <div className="text-center text-sm text-muted-foreground py-10">Carregando…</div>
         ) : (accountsQ.data ?? []).length === 0 ? (
