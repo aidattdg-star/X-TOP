@@ -37,12 +37,12 @@ const empty = {
   auth_tokens: "",
 };
 
-/** Aceita 3 formatos:
+/** Aceita vários formatos e devolve auth_token (+ ct0/username/cookie_string quando dá):
  *  1) auth_token puro:        "a89f70ce3e8dc572b493d1ae33a25a395fe86bdf"
  *  2) "auth_token=...; ct0=...; guest_id=..." (cookie inteiro do DevTools)
  *  3) JSON {"auth_token":"...", ...}
- *  Sempre devolve auth_token + (opcional) cookie_string completa. */
-function parseInput(raw: string): { auth_token?: string; cookie_string?: string } {
+ *  4) combolist "user:senha:email:senha_email:auth_token:ct0" (acha o token de 40 hex e o ct0 longo) */
+function parseInput(raw: string): { auth_token?: string; cookie_string?: string; ct0?: string; username?: string } {
   const s = raw.trim();
   if (!s) return {};
 
@@ -50,7 +50,7 @@ function parseInput(raw: string): { auth_token?: string; cookie_string?: string 
   try {
     const j = JSON.parse(s);
     if (j && j.auth_token) {
-      return { auth_token: String(j.auth_token), cookie_string: j.cookie_string };
+      return { auth_token: String(j.auth_token), cookie_string: j.cookie_string, ct0: j.ct0, username: j.username };
     }
   } catch {}
 
@@ -58,7 +58,7 @@ function parseInput(raw: string): { auth_token?: string; cookie_string?: string 
   if (/^[a-f0-9]{30,}$/i.test(s)) return { auth_token: s };
 
   // cookie string
-  if (s.includes("=")) {
+  if (/auth_token=/.test(s)) {
     const out: Record<string, string> = {};
     for (const part of s.split(/[;\n]+/)) {
       const [k, ...rest] = part.trim().split("=");
@@ -69,7 +69,23 @@ function parseInput(raw: string): { auth_token?: string; cookie_string?: string 
         .filter(([, v]) => v)
         .map(([k, v]) => `${k}=${v}`)
         .join("; ");
-      return { auth_token: out.auth_token, cookie_string };
+      return { auth_token: out.auth_token, cookie_string, ct0: out.ct0 };
+    }
+  }
+
+  // combolist separado por ":" — acha auth_token (40 hex) e ct0 (hex longo, ~160)
+  if (s.includes(":")) {
+    const parts = s.split(":").map((p) => p.trim()).filter(Boolean);
+    const auth_token = parts.find((p) => /^[a-f0-9]{40}$/i.test(p));
+    const ct0 = parts.find((p) => /^[a-f0-9]{80,}$/i.test(p));
+    if (auth_token) {
+      const first = parts[0];
+      const username =
+        first && !/^[a-f0-9]{20,}$/i.test(first) && !first.includes("@") && !first.includes("=")
+          ? first
+          : undefined;
+      const cookie_string = ct0 ? `auth_token=${auth_token}; ct0=${ct0}` : undefined;
+      return { auth_token, ct0, cookie_string, username };
     }
   }
 
@@ -183,24 +199,39 @@ export function AccountModal({
     try {
       for (let i = 0; i < lines.length; i++) {
         setBulkProgress(Math.round((i / lines.length) * 100));
-        const { auth_token, cookie_string } = parseInput(lines[i]);
-        if (!auth_token) { fails.push(`Linha ${i + 1}: token inválido`); continue; }
+        const { auth_token, cookie_string, ct0, username } = parseInput(lines[i]);
+        if (!auth_token) { fails.push(`Linha ${i + 1}: sem token (auth_token) válido`); continue; }
         const proxy_id =
           bulkProxyId === "__rotate__" ? proxies[i % proxies.length].id : bulkProxyId;
-        setBulkLabel(`Detectando conta ${i + 1}/${lines.length}…`);
         try {
-          const r = await runDetect({ data: { auth_token, cookie_string } });
-          const { error } = await supabase.from("twitter_accounts").insert({
-            user_id: u.user.id,
-            username: r.username,
-            display_name: r.name || null,
-            profile_picture_url: r.profile_picture_url || null,
-            proxy_id,
-            auth_tokens: r.tokens,
-            status: "active",
-          });
-          if (error) throw new Error(error.message);
-          ok++;
+          if (ct0 && username) {
+            // Já temos ct0 + username (combolist): insere direto, sem detectar pelo X.
+            setBulkLabel(`Adicionando @${username} (${i + 1}/${lines.length})…`);
+            const { error } = await supabase.from("twitter_accounts").insert({
+              user_id: u.user.id,
+              username: username.replace(/^@/, ""),
+              proxy_id,
+              auth_tokens: { auth_token, ct0, cookie_string: cookie_string ?? `auth_token=${auth_token}; ct0=${ct0}` },
+              status: "active",
+            });
+            if (error) throw new Error(error.message);
+            ok++;
+          } else {
+            // Sem ct0/username: detecta pelo X (precisa de proxy/sessão válida).
+            setBulkLabel(`Detectando conta ${i + 1}/${lines.length}…`);
+            const r = await runDetect({ data: { auth_token, cookie_string } });
+            const { error } = await supabase.from("twitter_accounts").insert({
+              user_id: u.user.id,
+              username: r.username,
+              display_name: r.name || null,
+              profile_picture_url: r.profile_picture_url || null,
+              proxy_id,
+              auth_tokens: r.tokens,
+              status: "active",
+            });
+            if (error) throw new Error(error.message);
+            ok++;
+          }
         } catch (e) {
           fails.push(`Linha ${i + 1}: ${e instanceof Error ? e.message : "falha"}`);
         }
@@ -237,15 +268,18 @@ export function AccountModal({
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Um token (ou cookie completo) por linha
+                Uma conta por linha
               </Label>
               <Textarea
                 rows={7}
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
-                placeholder={`a89f70ce3e8dc572b493d1ae33a25a395fe86bdf\nauth_token=...; ct0=...; guest_id=...`}
+                placeholder={`user:senha:email:senha_email:auth_token:ct0\nou só o auth_token\nou auth_token=...; ct0=...`}
                 className="font-mono text-xs"
               />
+              <p className="text-xs text-muted-foreground">
+                Aceita <b>combolist</b> (<code className="text-foreground">user:senha:email:emailpass:auth_token:ct0</code>), token puro ou cookie. Com o <code className="text-foreground">ct0</code> na linha, adiciona direto (sem precisar detectar pelo X).
+              </p>
               {bulkLines.length > 0 && (
                 <p className="text-xs text-muted-foreground">{bulkLines.length} conta(s) na lista</p>
               )}
