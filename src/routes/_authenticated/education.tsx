@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2, ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { GraduationCap, Heart, Clock, Sparkles, Trash2, Plus, Loader2, ChevronDown, ChevronRight, Lock, Unlock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/education")({
@@ -159,6 +159,27 @@ function EducationPage() {
     await supabase.from("twitter_accounts").update({ warming_until: null }).in("id", ids);
   }
 
+  async function unlockOne(id: string) {
+    await unlockWarming([id]);
+    qc.invalidateQueries({ queryKey: ["edu_accounts"] });
+    toast.success("Conta destravada");
+  }
+
+  async function unlockScope() {
+    const target = selected.size > 0 ? allAccounts.filter((a) => selected.has(a.id)) : allAccounts;
+    const lockedTargets = target.filter((a) => a.warming_until && Date.parse(a.warming_until) > Date.now());
+    if (!lockedTargets.length) return toast.error("Nenhuma conta travada no escopo.");
+    if (!confirm(`Destravar ${lockedTargets.length} conta(s) antes do fim do aquecimento? Por sua conta e risco — elas voltam a poder fazer ações (RT/like/monitor).`)) return;
+    setBulkBusy(true);
+    try {
+      await unlockWarming(lockedTargets.map((a) => a.id));
+      qc.invalidateQueries({ queryKey: ["edu_accounts"] });
+      toast.success(`${lockedTargets.length} conta(s) destravada(s)`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function applyToAll(
     transform: (base: { twitter_account_id: string; user_id: string; enabled: boolean; keywords: string[] }) => any,
     okMsg: string,
@@ -256,6 +277,9 @@ function EducationPage() {
             <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, enabled: false }), `Pausadas: ${scopeLabel}`, "unlock")} disabled={bulkBusy}>
               Pausar
             </Button>
+            <Button variant="outline" onClick={unlockScope} disabled={bulkBusy} className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10" title="Remove o cadeado de aquecimento antes de 1 dia (por sua conta e risco)">
+              <Unlock className="h-3.5 w-3.5 mr-1" /> Destravar
+            </Button>
             <Button variant="outline" onClick={() => applyToAll((b) => ({ ...b, keywords: [] }), `Palavras limpas: ${scopeLabel}`)} disabled={bulkBusy} className="text-muted-foreground">
               <Trash2 className="h-3.5 w-3.5 mr-1" /> Limpar palavras
             </Button>
@@ -287,6 +311,7 @@ function EducationPage() {
               onToggleSelect={() => toggleSelect(acc.id)}
               expanded={expanded.has(acc.id)}
               onToggleExpand={() => toggleExpand(acc.id)}
+              onUnlock={() => unlockOne(acc.id)}
             />
           ))
         )}
@@ -296,7 +321,7 @@ function EducationPage() {
 }
 
 function AccountCard({
-  account, edu, tasks, onChange, saving, selected, onToggleSelect, expanded, onToggleExpand,
+  account, edu, tasks, onChange, saving, selected, onToggleSelect, expanded, onToggleExpand, onUnlock,
 }: {
   account: Account;
   edu: EduRow | null;
@@ -307,6 +332,7 @@ function AccountCard({
   onToggleSelect: () => void;
   expanded: boolean;
   onToggleExpand: () => void;
+  onUnlock: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const enabled = edu?.enabled ?? false;
@@ -340,9 +366,18 @@ function AccountCard({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground">@{account.username}</span>
             {account.warming_until && Date.parse(account.warming_until) > Date.now() && (
-              <Badge variant="outline" className="text-[10px] font-normal gap-1 border-brand/40 text-brand">
-                <Lock className="h-3 w-3" /> aquecendo · {lockCountdown(account.warming_until)}
-              </Badge>
+              <span className="inline-flex items-center gap-1">
+                <Badge variant="outline" className="text-[10px] font-normal gap-1 border-brand/40 text-brand">
+                  <Lock className="h-3 w-3" /> aquecendo · {lockCountdown(account.warming_until)}
+                </Badge>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnlock(); }}
+                  className="inline-flex items-center gap-1 text-[10px] text-amber-400 hover:underline"
+                  title="Destravar agora (por sua conta e risco)"
+                >
+                  <Unlock className="h-3 w-3" /> destravar
+                </button>
+              </span>
             )}
             <Badge variant="outline" className="text-[10px] font-normal gap-1">
               {keywords.length} palavra(s)
