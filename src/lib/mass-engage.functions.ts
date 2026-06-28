@@ -177,14 +177,20 @@ export const runMassEngage = createServerFn({ method: "POST" })
     });
 
     // Instantâneo: aciona o worker na hora pra processar já (cron pega o resto em <=1min).
+    // Espera no máx ~6s só pra garantir que o worker iniciou — ele segue rodando
+    // como invocação independente mesmo após o abort (evita timeout de 10s no Hobby).
     if (instant) {
       const host = process.env.VERCEL_URL || process.env.SITE_URL || "";
       if (host) {
         const baseUrl = host.startsWith("http") ? host : `https://${host}`;
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 6000);
         try {
-          await fetch(`${baseUrl}/api/public/hooks/run-queue`, { method: "POST" });
+          await fetch(`${baseUrl}/api/public/hooks/run-queue`, { method: "POST", signal: ctrl.signal });
         } catch {
-          /* se falhar, o cron processa em até 1 min */
+          /* abort/erro: o worker já foi acionado; o cron processa o resto em até 1 min */
+        } finally {
+          clearTimeout(t);
         }
       }
     }
