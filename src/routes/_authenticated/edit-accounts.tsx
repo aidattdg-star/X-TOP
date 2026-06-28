@@ -3,7 +3,8 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw, Search, Check, UserCog } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { Progress } from "@/components/ui/progress";
@@ -108,59 +109,72 @@ function EditAccountsPage() {
 
       <div className="mt-10 grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
         {/* SELETOR DE CONTAS */}
-        <aside className="border border-border rounded-lg bg-surface overflow-hidden flex flex-col max-h-[75vh]">
-          <div className="p-4 border-b border-border space-y-2">
+        <aside className="liquid-glass rounded-2xl overflow-hidden flex flex-col max-h-[75vh] lg:sticky lg:top-6">
+          <div className="relative p-4 border-b border-white/[0.06] space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 Contas selecionadas
               </p>
-              <span className="text-xs text-foreground">{selected.size}</span>
+              <span className="grid h-6 min-w-[26px] px-2 place-items-center rounded-full bg-brand/15 text-brand text-xs font-semibold tabular-nums">
+                {selected.size}
+              </span>
             </div>
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filtrar @username..."
-              className="w-full px-3 py-1.5 bg-background border border-border rounded text-xs"
-            />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filtrar @username…"
+                className="w-full h-9 pl-9 pr-3 bg-white/[0.04] border border-white/10 rounded-lg text-xs outline-none focus:border-brand/40 transition-colors placeholder:text-muted-foreground"
+              />
+            </div>
             <button
               onClick={toggleAll}
-              className="text-[11px] underline text-muted-foreground hover:text-foreground"
+              className="text-[11px] font-medium text-brand hover:underline"
             >
               {filtered.length && filtered.every((a) => selected.has(a.id))
                 ? "Limpar seleção visível"
                 : "Selecionar todas visíveis"}
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {filtered.map((a) => (
-              <label
-                key={a.id}
-                className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-accent cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(a.id)}
-                  onChange={() => toggle(a.id)}
-                  className="w-4 h-4"
-                />
-                {a.profile_picture_url ? (
-                  <img src={a.profile_picture_url} alt="" className="w-7 h-7 rounded-full object-cover" />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-accent" />
-                )}
-                <div className="flex-1 min-w-0 text-xs">
-                  <p className="truncate text-foreground">@{a.username}</p>
-                  <p className="truncate text-muted-foreground text-[10px]">{a.display_name || "—"}</p>
-                </div>
-                <span className={`text-[9px] uppercase tracking-wider ${
-                  a.status === "active" ? "text-emerald-500" : "text-muted-foreground"
-                }`}>
-                  {a.status}
-                </span>
-              </label>
-            ))}
+          <div className="relative flex-1 overflow-y-auto p-2 space-y-0.5">
+            {filtered.map((a) => {
+              const on = selected.has(a.id);
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => toggle(a.id)}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-colors",
+                    on ? "bg-accent" : "hover:bg-white/[0.04]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md border transition-colors",
+                      on ? "border-brand bg-brand text-white" : "border-white/15",
+                    )}
+                  >
+                    {on && <Check className="h-3 w-3" strokeWidth={3} />}
+                  </span>
+                  {a.profile_picture_url ? (
+                    <img src={a.profile_picture_url} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-white/10" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-white/[0.06] grid place-items-center text-[10px] font-medium text-muted-foreground uppercase">
+                      {a.username.slice(0, 2)}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[13px] text-foreground leading-tight">@{a.username}</p>
+                    <p className="truncate text-muted-foreground text-[11px] leading-tight">{a.display_name || "—"}</p>
+                  </div>
+                  <StatusDot status={a.status} />
+                </button>
+              );
+            })}
             {!filtered.length && (
-              <p className="text-xs text-muted-foreground p-4 text-center">Nenhuma conta.</p>
+              <p className="text-xs text-muted-foreground p-6 text-center">Nenhuma conta encontrada.</p>
             )}
           </div>
         </aside>
@@ -168,8 +182,16 @@ function EditAccountsPage() {
         {/* PAINEL DE EDIÇÃO */}
         <section className="space-y-6">
           {!selected.size && (
-            <div className="border border-dashed border-border rounded-lg p-10 text-center text-sm text-muted-foreground">
-              Selecione 1 ou mais contas à esquerda para editar.
+            <div className="liquid-glass rounded-2xl p-12 grid place-items-center text-center min-h-[300px]">
+              <div className="relative">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white/[0.06] border border-white/10 text-brand">
+                  <UserCog className="h-7 w-7" strokeWidth={1.5} />
+                </div>
+                <p className="mt-4 text-sm text-foreground">Nenhuma conta selecionada</p>
+                <p className="mt-1 text-xs text-muted-foreground max-w-xs">
+                  Escolha 1 ou mais contas na lista à esquerda para editar avatar, banner, nome, bio ou @.
+                </p>
+              </div>
             </div>
           )}
 
@@ -554,16 +576,33 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-border bg-surface rounded-lg p-5">
-      <div className="flex items-start gap-2 mb-4">
-        {icon}
+    <div className="liquid-glass rounded-2xl p-5">
+      <div className="relative flex items-start gap-2.5 mb-4">
+        {icon && (
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/[0.06] border border-white/10 text-brand">
+            {icon}
+          </span>
+        )}
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
           {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
         </div>
       </div>
-      {children}
+      <div className="relative">{children}</div>
     </div>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const active = status === "active";
+  const banned = status === "banned";
+  const color = active ? "#34d399" : banned ? "#f87171" : "#fbbf24";
+  const label = active ? "ativa" : banned ? "banida" : status;
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+    </span>
   );
 }
 
