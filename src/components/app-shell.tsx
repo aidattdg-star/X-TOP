@@ -1,7 +1,18 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
-  LayoutDashboard, Users, Workflow, ScrollText, Activity, GraduationCap,
-  Image as ImageIcon, UserCog, LogOut, Rocket, PanelLeftClose, PanelLeftOpen,
+  LayoutDashboard,
+  Users,
+  Workflow,
+  ScrollText,
+  Activity,
+  GraduationCap,
+  Image as ImageIcon,
+  UserCog,
+  LogOut,
+  Rocket,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -20,6 +31,8 @@ const nav = [
   { to: "/logs", label: "Logs", icon: ScrollText },
 ] as const;
 
+const ADMIN_NAV = { to: "/admin", label: "Admin", icon: ShieldCheck } as const;
+
 const STORAGE_KEY = "mimix.sidebar.collapsed";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -28,11 +41,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (localStorage.getItem(STORAGE_KEY) === "1") setCollapsed(true);
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    supabase.auth.getUser().then(async ({ data }) => {
+      setEmail(data.user?.email ?? null);
+      if (!data.user) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+      setIsAdmin(profile?.role === "admin");
+    });
   }, []);
+
+  const navItems = isAdmin ? [...nav, ADMIN_NAV] : nav;
 
   function toggle() {
     setCollapsed((c) => {
@@ -70,83 +95,97 @@ export function AppShell({ children }: { children: ReactNode }) {
               collapsed && hovered ? "shadow-2xl shadow-black/40" : "",
             )}
           >
-          {/* Brand */}
-          <div className={cn("flex items-center h-[68px] border-b border-border", compact ? "justify-center px-0" : "px-5")}>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl gradient-brand glow-brand">
-                <Rocket className="h-[18px] w-[18px] text-white" strokeWidth={2} />
+            {/* Brand */}
+            <div
+              className={cn(
+                "flex items-center h-[68px] border-b border-border",
+                compact ? "justify-center px-0" : "px-5",
+              )}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl gradient-brand glow-brand">
+                  <Rocket className="h-[18px] w-[18px] text-white" strokeWidth={2} />
+                </div>
+                {!compact && (
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground leading-none">
+                      MimixLab
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-gradient leading-none truncate">
+                      Automation Suite
+                    </p>
+                  </div>
+                )}
               </div>
-              {!compact && (
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground leading-none">MimixLab</p>
-                  <p className="mt-1 text-sm font-semibold text-gradient leading-none truncate">Automation Suite</p>
+            </div>
+
+            {/* Nav */}
+            <nav
+              className={cn(
+                "flex-1 py-4 space-y-1 overflow-y-auto overflow-x-hidden",
+                compact ? "px-2.5" : "px-3",
+              )}
+            >
+              {navItems.map((item) => {
+                const active = pathname === item.to || pathname.startsWith(item.to + "/");
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    aria-label={item.label}
+                    className={cn(
+                      "group relative flex items-center rounded-lg text-sm transition-all duration-200",
+                      compact ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2",
+                      active
+                        ? "bg-accent text-foreground shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.06)]"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    )}
+                  >
+                    {active && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-full gradient-brand" />
+                    )}
+                    <Icon
+                      className={cn(
+                        "h-[18px] w-[18px] shrink-0 transition-colors",
+                        active ? "text-brand" : "text-muted-foreground group-hover:text-foreground",
+                      )}
+                      strokeWidth={1.75}
+                    />
+                    {!compact && <span className="truncate">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* Footer: user + actions */}
+            <div className="border-t border-border p-3 space-y-1">
+              {!compact && email && (
+                <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg">
+                  <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-brand uppercase">
+                    {email.slice(0, 2)}
+                  </div>
+                  <span className="text-xs text-muted-foreground truncate">{email}</span>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Nav */}
-          <nav className={cn("flex-1 py-4 space-y-1 overflow-y-auto overflow-x-hidden", compact ? "px-2.5" : "px-3")}>
-            {nav.map((item) => {
-              const active = pathname === item.to || pathname.startsWith(item.to + "/");
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  aria-label={item.label}
-                  className={cn(
-                    "group relative flex items-center rounded-lg text-sm transition-all duration-200",
-                    compact ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2",
-                    active
-                      ? "bg-accent text-foreground shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.06)]"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                  )}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-full gradient-brand" />
-                  )}
-                  <Icon
-                    className={cn(
-                      "h-[18px] w-[18px] shrink-0 transition-colors",
-                      active ? "text-brand" : "text-muted-foreground group-hover:text-foreground",
-                    )}
-                    strokeWidth={1.75}
-                  />
-                  {!compact && <span className="truncate">{item.label}</span>}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Footer: user + actions */}
-          <div className="border-t border-border p-3 space-y-1">
-            {!compact && email && (
-              <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg">
-                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-brand uppercase">
-                  {email.slice(0, 2)}
-                </div>
-                <span className="text-xs text-muted-foreground truncate">{email}</span>
+              <div className={cn("flex gap-1", compact ? "flex-col items-center" : "items-center")}>
+                <FooterAction
+                  collapsed={compact}
+                  onClick={handleSignOut}
+                  icon={LogOut}
+                  label="Sair"
+                  danger
+                />
+                <FooterAction
+                  collapsed={compact}
+                  onClick={toggle}
+                  icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+                  label={collapsed ? "Fixar aberta" : "Modo rail (hover)"}
+                  className={compact ? "" : "ml-auto"}
+                />
               </div>
-            )}
-
-            <div className={cn("flex gap-1", compact ? "flex-col items-center" : "items-center")}>
-              <FooterAction
-                collapsed={compact}
-                onClick={handleSignOut}
-                icon={LogOut}
-                label="Sair"
-                danger
-              />
-              <FooterAction
-                collapsed={compact}
-                onClick={toggle}
-                icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-                label={collapsed ? "Fixar aberta" : "Modo rail (hover)"}
-                className={compact ? "" : "ml-auto"}
-              />
             </div>
-          </div>
           </div>
         </aside>
 
@@ -157,7 +196,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function FooterAction({
-  collapsed, onClick, icon: Icon, label, danger, className,
+  collapsed,
+  onClick,
+  icon: Icon,
+  label,
+  danger,
+  className,
 }: {
   collapsed: boolean;
   onClick: () => void;

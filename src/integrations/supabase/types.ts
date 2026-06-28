@@ -358,6 +358,36 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          email: string | null
+          id: string
+          role: string
+          status: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          email?: string | null
+          id: string
+          role?: string
+          status?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          role?: string
+          status?: string
+        }
+        Relationships: []
+      }
       profile_update_log: {
         Row: {
           created_at: string
@@ -405,12 +435,16 @@ export type Database = {
       proxies: {
         Row: {
           created_at: string
+          exit_ip: string | null
+          fail_count: number
           id: string
           ip: string
           label: string | null
           last_tested_at: string | null
+          latency_ms: number | null
           password: string | null
           port: number
+          quality: string | null
           status: Database["public"]["Enums"]["proxy_status"]
           updated_at: string
           user_id: string
@@ -418,12 +452,16 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          exit_ip?: string | null
+          fail_count?: number
           id?: string
           ip: string
           label?: string | null
           last_tested_at?: string | null
+          latency_ms?: number | null
           password?: string | null
           port: number
+          quality?: string | null
           status?: Database["public"]["Enums"]["proxy_status"]
           updated_at?: string
           user_id: string
@@ -431,12 +469,16 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          exit_ip?: string | null
+          fail_count?: number
           id?: string
           ip?: string
           label?: string | null
           last_tested_at?: string | null
+          latency_ms?: number | null
           password?: string | null
           port?: number
+          quality?: string | null
           status?: Database["public"]["Enums"]["proxy_status"]
           updated_at?: string
           user_id?: string
@@ -458,6 +500,7 @@ export type Database = {
           updated_at: string
           user_id: string
           username: string
+          warming_until: string | null
         }
         Insert: {
           auth_tokens?: Json
@@ -472,6 +515,7 @@ export type Database = {
           updated_at?: string
           user_id: string
           username: string
+          warming_until?: string | null
         }
         Update: {
           auth_tokens?: Json
@@ -486,6 +530,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
           username?: string
+          warming_until?: string | null
         }
         Relationships: [
           {
