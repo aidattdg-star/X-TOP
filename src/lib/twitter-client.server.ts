@@ -334,10 +334,16 @@ export async function postTweet(tokens: AuthTokens, text: string, _d?: Dispatche
 }
 
 export async function retweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
-  return gqlPost(`${QID.CreateRetweet}/CreateRetweet`, tokens, {
+  const json = await gqlPost(`${QID.CreateRetweet}/CreateRetweet`, tokens, {
     variables: { tweet_id: tweetId, dark_request: false },
     queryId: QID.CreateRetweet,
   });
+  const restId = json?.data?.create_retweet?.retweet_results?.result?.rest_id;
+  if (restId) return { rest_id: String(restId), raw: json };
+  // "You have already retweeted this Tweet" (code 327) = efetivamente já está RT'ado
+  const code = json?.errors?.[0]?.code;
+  if (code === 327) return { already: true, raw: json };
+  throw new Error(`Retweet não confirmado pelo X. Resposta: ${JSON.stringify(json).slice(0, 400)}`);
 }
 
 export async function commentReply(
@@ -366,10 +372,15 @@ export async function commentReply(
 }
 
 export async function likeTweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
-  return gqlPost(`${QID.FavoriteTweet}/FavoriteTweet`, tokens, {
+  const json = await gqlPost(`${QID.FavoriteTweet}/FavoriteTweet`, tokens, {
     variables: { tweet_id: tweetId },
     queryId: QID.FavoriteTweet,
   });
+  if (json?.data?.favorite_tweet === "Done") return { done: true };
+  // "already favorited" (code 139) = já curtido
+  const code = json?.errors?.[0]?.code;
+  if (code === 139) return { already: true };
+  throw new Error(`Like não confirmado pelo X. Resposta: ${JSON.stringify(json).slice(0, 400)}`);
 }
 
 /** Confirma que os cookies (ct0 + auth_token) estão válidos via GraphQL UserByScreenName. */
