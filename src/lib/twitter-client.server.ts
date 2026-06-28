@@ -3,21 +3,15 @@
 // (cloudflare:sockets). Sem proxy, usa fetch nativo do Worker.
 import { ClientTransaction, handleXMigration } from "x-client-transaction-id";
 import { type ProxyInfo as PFProxyInfo } from "./proxy-fetch.server";
+import { resolveQID, refreshQID } from "./twitter-qids.server";
 
 const WEB_BEARER =
   "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
-const QID = {
-  CreateTweet: "DQIp0b4mKIciCAZ3bfrwAA",
-  CreateRetweet: "ojPdsZsimiJrUGLR1sjUtA",
-  FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
-  UserByScreenName: "681MIj51w00Aj6dY0GXnHw",
-  UserTweets: "RyDU3I9VJtPF-Pnl6vrRlw",
-  Viewer: "XdoyrgGBgyPmBDS7Snsd4A",
-  // X rotaciona esse ID a cada ~2-4 semanas; se a busca voltar a dar 404,
-  // atualize pelo bundle do X (fonte: fa0311/TwitterInternalAPIDocument).
-  SearchTimeline: "DADfqtK_SEe6XwGAHIo2wA",
-};
+// Os queryIds das operações são resolvidos dinamicamente (com fallback fixo e
+// auto-correção em 404) em "./twitter-qids.server". As chamadas passam só o
+// operationName; gqlGet/gqlPost montam o caminho e tentam de novo se o X
+// rotacionar o ID.
 
 let transactionPromise: Promise<ClientTransaction> | null = null;
 
@@ -185,16 +179,32 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function gqlPost(path: string, tokens: AuthTokens, body: unknown, d?: Dispatcher) {
-  const res = await doFetch(`https://x.com/i/api/graphql/${path}`, {
-    method: "POST",
-    headers: await headers(tokens, "POST", `/graphql/${path}`),
-    body: JSON.stringify(body),
-  }, d);
-  applySetCookies(tokens, res);
-  const text = await res.text();
-  let json: any;
-  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+// Recebe o operationName (ex.: "CreateRetweet"); o queryId é resolvido na hora.
+// Em HTTP 404 (ID rotacionado pelo X) atualiza os IDs e tenta de novo 1x.
+async function gqlPost(op: string, tokens: AuthTokens, body: unknown, d?: Dispatcher) {
+  const send = async () => {
+    const path = `${resolveQID(op)}/${op}`;
+    const finalBody =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? { ...(body as Record<string, unknown>), queryId: resolveQID(op) }
+        : body;
+    const res = await doFetch(`https://x.com/i/api/graphql/${path}`, {
+      method: "POST",
+      headers: await headers(tokens, "POST", `/graphql/${path}`),
+      body: JSON.stringify(finalBody),
+    }, d);
+    applySetCookies(tokens, res);
+    const text = await res.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return { res, json, text };
+  };
+
+  let { res, json, text } = await send();
+  if (res.status === 404) {
+    await refreshQID(op);
+    ({ res, json, text } = await send());
+  }
   if (!res.ok || (json?.errors && !json?.data)) {
     throw xApiError("X API", res.status, text, json);
   }
@@ -202,7 +212,7 @@ async function gqlPost(path: string, tokens: AuthTokens, body: unknown, d?: Disp
 }
 
 async function gqlGet(
-  path: string,
+  op: string,
   tokens: AuthTokens,
   variables: object,
   features: object,
@@ -214,12 +224,23 @@ async function gqlGet(
     features: JSON.stringify(features),
   });
   if (fieldToggles) params.set("fieldToggles", JSON.stringify(fieldToggles));
-  const url = `https://x.com/i/api/graphql/${path}?${params.toString()}`;
-  const res = await doFetch(url, { method: "GET", headers: await headers(tokens, "GET", `/graphql/${path}`) }, d);
-  applySetCookies(tokens, res);
-  const text = await res.text();
-  let json: any;
-  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  const qs = params.toString();
+  const send = async () => {
+    const path = `${resolveQID(op)}/${op}`;
+    const url = `https://x.com/i/api/graphql/${path}?${qs}`;
+    const res = await doFetch(url, { method: "GET", headers: await headers(tokens, "GET", `/graphql/${path}`) }, d);
+    applySetCookies(tokens, res);
+    const text = await res.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return { res, json, text };
+  };
+
+  let { res, json, text } = await send();
+  if (res.status === 404) {
+    await refreshQID(op);
+    ({ res, json, text } = await send());
+  }
   if (!res.ok || json?.errors) {
     throw xApiError("X API", res.status, text, json);
   }
@@ -314,7 +335,7 @@ function parseUserResult(result: any, fallbackScreenName: string) {
 }
 
 export async function postTweet(tokens: AuthTokens, text: string, _d?: Dispatcher) {
-  const json = await gqlPost(`${QID.CreateTweet}/CreateTweet`, tokens, {
+  const json = await gqlPost("CreateTweet", tokens, {
     variables: {
       tweet_text: text,
       dark_request: false,
@@ -322,7 +343,6 @@ export async function postTweet(tokens: AuthTokens, text: string, _d?: Dispatche
       semantic_annotation_ids: [],
     },
     features: TWEET_FEATURES,
-    queryId: QID.CreateTweet,
   });
   const result = json?.data?.create_tweet?.tweet_results?.result;
   const restId = result?.rest_id ?? result?.tweet?.rest_id;
@@ -336,9 +356,8 @@ export async function postTweet(tokens: AuthTokens, text: string, _d?: Dispatche
 }
 
 export async function retweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
-  const json = await gqlPost(`${QID.CreateRetweet}/CreateRetweet`, tokens, {
+  const json = await gqlPost("CreateRetweet", tokens, {
     variables: { tweet_id: tweetId, dark_request: false },
-    queryId: QID.CreateRetweet,
   });
   const restId = json?.data?.create_retweet?.retweet_results?.result?.rest_id;
   if (restId) return { rest_id: String(restId), raw: json };
@@ -366,7 +385,7 @@ export async function commentReply(
   text: string,
   _d?: Dispatcher,
 ) {
-  const json = await gqlPost(`${QID.CreateTweet}/CreateTweet`, tokens, {
+  const json = await gqlPost("CreateTweet", tokens, {
     variables: {
       tweet_text: text,
       reply: { in_reply_to_tweet_id: tweetId, exclude_reply_user_ids: [] },
@@ -375,7 +394,6 @@ export async function commentReply(
       semantic_annotation_ids: [],
     },
     features: TWEET_FEATURES,
-    queryId: QID.CreateTweet,
   });
   const result = json?.data?.create_tweet?.tweet_results?.result;
   const restId = result?.rest_id ?? result?.tweet?.rest_id;
@@ -386,9 +404,8 @@ export async function commentReply(
 }
 
 export async function likeTweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
-  const json = await gqlPost(`${QID.FavoriteTweet}/FavoriteTweet`, tokens, {
+  const json = await gqlPost("FavoriteTweet", tokens, {
     variables: { tweet_id: tweetId },
-    queryId: QID.FavoriteTweet,
   });
   if (json?.data?.favorite_tweet === "Done") return { done: true };
   // "already favorited" (code 139) = já curtido
@@ -405,7 +422,7 @@ export async function verifySession(
 ): Promise<{ ok: true; id: string; screen_name: string; name: string }> {
   const clean = screenName.replace(/^@/, "");
   const json = await gqlGet(
-    `${QID.UserByScreenName}/UserByScreenName`,
+    "UserByScreenName",
     tokens,
     { screen_name: clean, withSafetyModeUserFields: true },
     USER_FEATURES,
@@ -426,7 +443,7 @@ export async function getAuthenticatedUserFromCookies(
   tokens: AuthTokens,
 ): Promise<{ id: string; screen_name: string; name: string; profile_picture_url: string }> {
   const json = await gqlGet(
-    `${QID.Viewer}/Viewer`,
+    "Viewer",
     tokens,
     {},
     VIEWER_FEATURES,
@@ -506,7 +523,7 @@ export async function getUserIdByScreenName(
 ): Promise<string> {
   const clean = screenName.replace(/^@/, "");
   const json = await gqlGet(
-    `${QID.UserByScreenName}/UserByScreenName`,
+    "UserByScreenName",
     tokens,
     { screen_name: clean, withSafetyModeUserFields: true },
     USER_FEATURES,
@@ -560,7 +577,7 @@ export async function getUserRecentTweets(
   _d?: Dispatcher,
 ): Promise<RecentTweet[]> {
   const json = await gqlGet(
-    `${QID.UserTweets}/UserTweets`,
+    "UserTweets",
     tokens,
     { userId, count, includePromotedContent: false, withQuickPromoteEligibilityTweetFields: false, withVoice: false, withV2Timeline: true },
     { ...TWEET_FEATURES, rweb_tipjar_consumption_enabled: true, communities_web_enable_tweet_community_results_fetch: true, c9s_tweet_anatomy_moderator_badge_enabled: true, articles_preview_enabled: true, creator_subscriptions_quote_tweet_preview_enabled: false, rweb_video_timestamps_enabled: true },
@@ -583,7 +600,7 @@ export async function searchRecentTweets(
   _d?: Dispatcher,
 ): Promise<RecentTweet[]> {
   const json = await gqlGet(
-    `${QID.SearchTimeline}/SearchTimeline`,
+    "SearchTimeline",
     tokens,
     {
       rawQuery: query,
