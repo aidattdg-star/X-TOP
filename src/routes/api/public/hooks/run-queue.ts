@@ -283,6 +283,20 @@ async function handle(): Promise<Response> {
 
         const attempt = (task.attempts ?? 0) + 1; // valor já persistido no claim
         const MAX_RETRY = 4;
+
+        // Perfil morto (suspenso/banido/sessão inválida): marca conta + proxy como die e falha de vez.
+        if (isProfileDeadError(msg)) {
+          await markProfileDead(supabaseAdmin, task.twitter_account_id);
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "failed", last_error: `Perfil caiu (die): ${msg.slice(0, 140)}`, updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "error",
+            `Perfil marcado como DIE (conta + proxy): ${msg.slice(0, 120)}`, task.twitter_account_id);
+          result.failed++;
+          continue;
+        }
+
         // Bloqueios temporários do X: 226 (parece automatizado), rate limit, "try again later".
         const isTemporary = /\(226\)|might be automated|try again later|\b429\b|rate.?limit|over capacity|timeout|ECONN|ETIMEDOUT|socket/i.test(msg);
         // Falha provavelmente ligada ao proxy/IP → conta contra a qualidade do proxy.
@@ -707,6 +721,30 @@ async function findMonitoredHandle(admin: any, flowId: string): Promise<string |
   const monitor = nodes.find((n) => n.data?.kind === "trigger.monitor_account");
   const acc = monitor?.data?.config?.account as string | undefined;
   return acc ? acc.replace(/^@/, "") : null;
+}
+
+// Detecta perfil "morto" (suspenso/banido/sessão inválida) pelo erro do X.
+function isProfileDeadError(msg: string): boolean {
+  return /suspended|account is (temporarily )?locked|account has been locked|could not authenticate you|account.*deactivated|this account is suspended|user has been suspended|\bbanned\b|\(64\)|\(32\)/i.test(msg);
+}
+
+// Marca o perfil como die (banido) e move o proxy vinculado para die também.
+async function markProfileDead(admin: any, accountId?: string | null): Promise<void> {
+  if (!accountId) return;
+  try {
+    const { data: acc } = await admin
+      .from("twitter_accounts").select("proxy_id, username").eq("id", accountId).maybeSingle();
+    await admin.from("twitter_accounts")
+      .update({ status: "banned", warming_until: null, updated_at: new Date().toISOString() })
+      .eq("id", accountId);
+    if (acc?.proxy_id) {
+      // colunas de qualidade podem não existir ainda — tenta com quality, cai pra só status.
+      const { error } = await admin.from("proxies")
+        .update({ status: "dead", quality: "dead", updated_at: new Date().toISOString() })
+        .eq("id", acc.proxy_id);
+      if (error) await admin.from("proxies").update({ status: "dead" }).eq("id", acc.proxy_id);
+    }
+  } catch { /* tolera */ }
 }
 
 // Incrementa o contador de falhas do proxy vinculado à conta (sinaliza proxy ruim).

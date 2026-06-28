@@ -246,6 +246,12 @@ function AccountsPage() {
       <section className="mt-12">
         {(() => {
           const all = proxies ?? [];
+          // Mapa proxy_id -> conta que o usa (em uso no momento)
+          const usage = new Map<string, { username: string; status: string }>();
+          for (const a of accounts ?? []) {
+            if ((a as any).proxy_id) usage.set((a as any).proxy_id, { username: a.username, status: a.status });
+          }
+          const inUseCount = all.filter((p) => usage.has(p.id)).length;
           const die = all.filter(isDieProxy);
           const bad = all.filter((p) => !isDieProxy(p) && isBadProxy(p));
           const live = all.filter((p) => !isDieProxy(p) && !isBadProxy(p));
@@ -271,6 +277,10 @@ function AccountsPage() {
                 Die ({die.length})
               </ProxyTab>
             </div>
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {inUseCount} em uso
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {removable.length > 0 && (
@@ -314,6 +324,7 @@ function AccountsPage() {
                   <th className="text-left px-5 py-3 font-normal">Endereço</th>
                   <th className="text-left px-5 py-3 font-normal">Usuário</th>
                   <th className="text-left px-5 py-3 font-normal">Qualidade</th>
+                  <th className="text-left px-5 py-3 font-normal">Em uso</th>
                   <th className="text-left px-5 py-3 font-normal">Status</th>
                   <th className="text-right px-5 py-3 font-normal">Ações</th>
                 </tr>
@@ -327,6 +338,19 @@ function AccountsPage() {
                     </td>
                     <td className="px-5 py-3 text-xs text-muted-foreground">{p.username || "—"}</td>
                     <td className="px-5 py-3"><QualityBadge quality={(p as any).quality} latency={(p as any).latency_ms} fails={(p as any).fail_count} /></td>
+                    <td className="px-5 py-3">
+                      {usage.has(p.id) ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          </span>
+                          @{usage.get(p.id)!.username}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">livre</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3"><StatusDot status={p.status} /></td>
                     <td className="px-5 py-3 text-right space-x-3">
                       <button
