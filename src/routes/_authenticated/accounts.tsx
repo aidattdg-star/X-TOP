@@ -9,7 +9,7 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
@@ -100,7 +100,8 @@ function AccountsPage() {
       return data ?? [];
     },
   });
-  const [folderFilter, setFolderFilter] = useState<string>("__all__");
+  // null = visão de pastas (cards). "__all__"/"__none__"/id = vendo contas de uma pasta.
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
 
   async function moveAccount(accountId: string, folderId: string | null) {
     const { error } = await supabase
@@ -114,7 +115,7 @@ function AccountsPage() {
     const { error } = await supabase.from("account_folders").delete().eq("id", folderId);
     if (error) return toast.error(error.message);
     toast.success(`Pasta "${name}" apagada`);
-    if (folderFilter === folderId) setFolderFilter("__all__");
+    if (folderFilter === folderId) setFolderFilter(null);
     qc.invalidateQueries({ queryKey: ["account_folders"] });
     qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
   }
@@ -234,34 +235,59 @@ function AccountsPage() {
           <span className="text-xs text-muted-foreground">{accounts?.length ?? 0} contas</span>
         </div>
 
-        {/* Pastas: filtro */}
-        {accounts && accounts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mb-5">
-            <FolderPill
-              label="Todas"
+        {/* VISÃO DE PASTAS (cards) — padrão, pra não empilhar todas as contas */}
+        {accounts && accounts.length > 0 && folderFilter === null && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <FolderCard
+              label="Todas as contas"
               count={accounts.length}
-              active={folderFilter === "__all__"}
               onClick={() => setFolderFilter("__all__")}
+              all
             />
+            {accounts.some((a) => !(a as any).folder_id) && (
+              <FolderCard
+                label="Sem pasta"
+                count={accounts.filter((a) => !(a as any).folder_id).length}
+                onClick={() => setFolderFilter("__none__")}
+              />
+            )}
+            {(folders ?? []).map((f) => (
+              <FolderCard
+                key={f.id}
+                label={f.name}
+                count={accounts.filter((a) => (a as any).folder_id === f.id).length}
+                onClick={() => setFolderFilter(f.id)}
+                onDelete={() => deleteFolder(f.id, f.name)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* DENTRO DE UMA PASTA: voltar + trocar rápido */}
+        {accounts && accounts.length > 0 && folderFilter !== null && (
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            <button
+              onClick={() => setFolderFilter(null)}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground rounded-lg border border-border px-3 py-1.5 transition-colors"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" /> Pastas
+            </button>
+            <FolderPill label="Todas" count={accounts.length} active={folderFilter === "__all__"} onClick={() => setFolderFilter("__all__")} />
             <FolderPill
               label="Sem pasta"
               count={accounts.filter((a) => !(a as any).folder_id).length}
               active={folderFilter === "__none__"}
               onClick={() => setFolderFilter("__none__")}
             />
-            {(folders ?? []).map((f) => {
-              const n = accounts.filter((a) => (a as any).folder_id === f.id).length;
-              return (
-                <FolderPill
-                  key={f.id}
-                  label={f.name}
-                  count={n}
-                  active={folderFilter === f.id}
-                  onClick={() => setFolderFilter(f.id)}
-                  onDelete={() => deleteFolder(f.id, f.name)}
-                />
-              );
-            })}
+            {(folders ?? []).map((f) => (
+              <FolderPill
+                key={f.id}
+                label={f.name}
+                count={accounts.filter((a) => (a as any).folder_id === f.id).length}
+                active={folderFilter === f.id}
+                onClick={() => setFolderFilter(f.id)}
+              />
+            ))}
           </div>
         )}
 
@@ -273,6 +299,7 @@ function AccountsPage() {
           </div>
         )}
 
+        {folderFilter !== null && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts
             ?.filter((acc) =>
@@ -379,6 +406,7 @@ function AccountsPage() {
             </div>
           ))}
         </div>
+        )}
       </section>
 
       <section className="mt-12">
@@ -585,6 +613,49 @@ function QualityBadge({ quality, latency, fails }: { quality?: string | null; la
       )}
       {(fails ?? 0) >= 5 && <span className="text-[10px] text-red-400">{fails} falhas</span>}
     </span>
+  );
+}
+
+function FolderCard({
+  label,
+  count,
+  onClick,
+  onDelete,
+  all,
+}: {
+  label: string;
+  count: number;
+  onClick: () => void;
+  onDelete?: () => void;
+  all?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group relative text-left rounded-2xl border border-border bg-surface p-4 transition-all hover:border-brand/40 hover:-translate-y-0.5"
+    >
+      <div className="flex items-start justify-between">
+        <span className={cn("grid h-10 w-10 place-items-center rounded-xl border border-white/10", all ? "gradient-brand text-white" : "bg-white/[0.06] text-brand")}>
+          {all ? <Layers className="h-5 w-5" strokeWidth={1.75} /> : <Folder className="h-5 w-5" strokeWidth={1.75} />}
+        </span>
+        {onDelete && (
+          <span
+            role="button"
+            tabIndex={0}
+            title="Apagar pasta"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+          >
+            <Trash2 className="h-4 w-4" />
+          </span>
+        )}
+      </div>
+      <p className="mt-3 text-sm font-medium text-foreground truncate">{label}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {count} conta{count === 1 ? "" : "s"}
+      </p>
+      <FolderOpen className="absolute right-4 bottom-4 h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+    </button>
   );
 }
 
