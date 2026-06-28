@@ -14,16 +14,30 @@ interface ProxyFetchInit {
   body?: string | Uint8Array;
 }
 
+// Limpa lixo comum vindo de listas (aspas, espaços, ":" sobrando, esquema).
+function cleanHost(ip: string): string {
+  return String(ip)
+    .trim()
+    .replace(/^[a-z0-9]+:\/\//i, "")
+    .replace(/^["'\s]+/, "")
+    .replace(/["'\s:]+$/, "")
+    .trim();
+}
+
 export async function nodeProxyFetch(
   url: string,
   init: ProxyFetchInit,
   proxy: ProxyInfo,
 ) {
-  const cred =
-    proxy.username
-      ? `${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password ?? "")}@`
-      : "";
-  const uri = `http://${cred}${proxy.ip}:${proxy.port}`;
+  const ip = cleanHost(proxy.ip);
+  const port = parseInt(String(proxy.port).trim(), 10);
+  if (!ip || !Number.isFinite(port) || port < 1 || port > 65535) {
+    throw new Error(`Proxy mal formatado (ip/porta): "${proxy.ip}:${proxy.port}"`);
+  }
+  const user = proxy.username ? String(proxy.username).trim() : "";
+  const pass = proxy.password ? String(proxy.password).trim() : "";
+  const cred = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : "";
+  const uri = `http://${cred}${ip}:${port}`;
   const agent = new ProxyAgent({ uri, requestTls: { rejectUnauthorized: false } });
 
   // undici descomprime gzip/deflate/br, mas não zstd — evita corpo corrompido.

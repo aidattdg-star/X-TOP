@@ -28,50 +28,56 @@ type ParsedProxy = { ip: string; port: number; username: string | null; password
  *   ip:port@user:pass
  * Separadores aceitos entre campos: ":" — e "@" separa host de credenciais.
  */
+const HOST_RE = /^(\d{1,3}(\.\d{1,3}){3}|[a-z0-9][a-z0-9.-]*\.[a-z]{2,})$/i;
+
+function validPort(s: string): number | null {
+  const p = Number(String(s).trim());
+  return Number.isInteger(p) && p >= 1 && p <= 65535 ? p : null;
+}
+
 export function parseProxyLine(raw: string): ParsedProxy | null {
-  let line = raw.trim();
+  // tira aspas/espaços nas pontas e esquema (http://, socks5:// etc.)
+  let line = raw.trim().replace(/^["']+|["']+$/g, "").trim();
   if (!line || line.startsWith("#")) return null;
-  // remove esquema (http://, socks5:// etc.)
   line = line.replace(/^[a-z0-9]+:\/\//i, "");
 
-  let host = line;
-  let creds = "";
+  // 1) ip:porta[:user:pass]  (prioritário — lida com e-mail no usuário, que tem "@")
+  const c = line.split(":");
+  if (c.length >= 2 && HOST_RE.test(c[0].trim())) {
+    const port = validPort(c[1]);
+    if (port) {
+      return {
+        ip: c[0].trim(),
+        port,
+        username: c[2] ? c[2].trim() : null,
+        password: c.length > 3 ? c.slice(3).join(":").trim() : null,
+        label: null,
+      };
+    }
+  }
+
+  // 2) user:pass@ip:porta
   if (line.includes("@")) {
-    const [a, b] = line.split("@");
-    // descobre qual lado é host:port (tem ponto ou parece ip)
-    if (/^\d{1,3}(\.\d{1,3}){3}|[a-z0-9.-]+\.[a-z]{2,}/i.test(b) && b.includes(":")) {
-      creds = a; host = b;
-    } else {
-      host = a; creds = b;
+    const at = line.lastIndexOf("@");
+    const creds = line.slice(0, at);
+    const host = line.slice(at + 1);
+    const hp = host.split(":");
+    if (hp.length >= 2 && HOST_RE.test(hp[0].trim())) {
+      const port = validPort(hp[1]);
+      if (port) {
+        const ci = creds.indexOf(":");
+        return {
+          ip: hp[0].trim(),
+          port,
+          username: ci >= 0 ? creds.slice(0, ci).trim() : creds.trim() || null,
+          password: ci >= 0 ? creds.slice(ci + 1).trim() : null,
+          label: null,
+        };
+      }
     }
   }
 
-  const hostParts = host.split(":").filter(Boolean);
-  if (hostParts.length < 2) {
-    // talvez seja ip:port:user:pass tudo junto sem @
-    const all = line.split(":").filter(Boolean);
-    if (all.length >= 4) {
-      const port = Number(all[1]);
-      if (!Number.isInteger(port)) return null;
-      return { ip: all[0], port, username: all[2], password: all.slice(3).join(":"), label: null };
-    }
-    return null;
-  }
-  const ip = hostParts[0];
-  const port = Number(hostParts[1]);
-  if (!ip || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-
-  let username: string | null = null;
-  let password: string | null = null;
-  if (creds) {
-    const [u, ...rest] = creds.split(":");
-    username = u || null;
-    password = rest.length ? rest.join(":") : null;
-  } else if (hostParts.length >= 4) {
-    username = hostParts[2] || null;
-    password = hostParts.slice(3).join(":") || null;
-  }
-  return { ip, port, username, password, label: null };
+  return null;
 }
 
 export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
