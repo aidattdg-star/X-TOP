@@ -139,7 +139,7 @@ function AccountsPage() {
 
   const [testingAll, setTestingAll] = useState(false);
   const [testAllDone, setTestAllDone] = useState(0);
-  const [proxyTab, setProxyTab] = useState<"live" | "bad" | "die">("live");
+  const [proxyTab, setProxyTab] = useState<"nova" | "live" | "bad" | "die">("live");
 
   async function deleteManyProxies(ids: string[], kind: string) {
     if (!ids.length) return;
@@ -150,17 +150,17 @@ function AccountsPage() {
     qc.invalidateQueries({ queryKey: ["proxies"] });
     qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
   }
-  async function testAllProxies() {
-    if (!proxies?.length) return;
+  async function testProxies(list: any[]) {
+    if (!list?.length) return;
     setTestingAll(true);
     setTestAllDone(0);
     try {
-      for (let i = 0; i < proxies.length; i++) {
-        try { await runTestProxy({ data: { proxy_id: proxies[i].id } }); } catch { /* segue */ }
+      for (let i = 0; i < list.length; i++) {
+        try { await runTestProxy({ data: { proxy_id: list[i].id } }); } catch { /* segue */ }
         setTestAllDone(i + 1);
       }
       qc.invalidateQueries({ queryKey: ["proxies"] });
-      toast.success("Todos os proxies testados");
+      toast.success(`${list.length} proxy(s) testada(s)`);
     } finally {
       setTestingAll(false);
     }
@@ -439,21 +439,26 @@ function AccountsPage() {
             if ((a as any).proxy_id) usage.set((a as any).proxy_id, { username: a.username, status: a.status });
           }
           const inUseCount = all.filter((p) => usage.has(p.id)).length;
-          const die = all.filter(isDieProxy);
-          const bad = all.filter((p) => !isDieProxy(p) && isBadProxy(p));
-          const live = all.filter((p) => !isDieProxy(p) && !isBadProxy(p));
-          const shown = proxyTab === "die" ? die : proxyTab === "bad" ? bad : live;
+          const nova = all.filter(isNewProxy);
+          const die = all.filter((p) => !isNewProxy(p) && isDieProxy(p));
+          const bad = all.filter((p) => !isNewProxy(p) && !isDieProxy(p) && isBadProxy(p));
+          const live = all.filter((p) => !isNewProxy(p) && !isDieProxy(p) && !isBadProxy(p));
+          const shown = proxyTab === "nova" ? nova : proxyTab === "die" ? die : proxyTab === "bad" ? bad : live;
           const removable = proxyTab === "die" ? die : proxyTab === "bad" ? bad : [];
           const emptyMsg =
-            proxyTab === "die" ? "Nenhum proxy morto. 🎉"
+            proxyTab === "nova" ? "Nenhuma proxy nova — todas já foram testadas."
+            : proxyTab === "die" ? "Nenhum proxy morto. 🎉"
             : proxyTab === "bad" ? "Nenhum proxy ruim. 🎉"
-            : "Nenhum proxy live ainda — rode \"Testar todos\".";
+            : "Nenhum proxy live ainda — teste as novas.";
           return (
         <>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <h2 className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Proxies</h2>
             <div className="flex gap-1 p-1 rounded-lg bg-muted/40 border border-border">
+              <ProxyTab active={proxyTab === "nova"} onClick={() => setProxyTab("nova")}>
+                Novas ({nova.length})
+              </ProxyTab>
               <ProxyTab active={proxyTab === "live"} onClick={() => setProxyTab("live")}>
                 Live ({live.length})
               </ProxyTab>
@@ -475,12 +480,20 @@ function AccountsPage() {
                 <Trash2 className="h-3.5 w-3.5 mr-2" /> Remover todas {proxyTab} ({removable.length})
               </Button>
             )}
-            {!!all.length && (
-              <Button variant="outline" size="sm" onClick={testAllProxies} disabled={testingAll}>
+            {shown.length > 0 && (
+              <Button
+                variant={proxyTab === "nova" ? "default" : "outline"}
+                size="sm"
+                onClick={() => testProxies(shown)}
+                disabled={testingAll}
+                className={proxyTab === "nova" ? "gradient-brand text-white border-0" : ""}
+              >
                 {testingAll ? (
-                  <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testando {testAllDone}/{all.length}</>
+                  <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testando {testAllDone}/{shown.length}</>
+                ) : proxyTab === "nova" ? (
+                  <>Testar novas ({shown.length})</>
                 ) : (
-                  <>Testar todos</>
+                  <>Testar {proxyTab} ({shown.length})</>
                 )}
               </Button>
             )}
@@ -593,6 +606,10 @@ function AccountsPage() {
 }
 
 // Die = morto/inalcançável · Bad = conecta mas ruim (datacenter/lento/muitas falhas) · Live = bom.
+function isNewProxy(p: any): boolean {
+  // recém-adicionada = nunca testada (sem qualidade e sem data de teste)
+  return !p?.last_tested_at && !p?.quality;
+}
 function isDieProxy(p: any): boolean {
   return p?.status === "dead" || p?.quality === "dead";
 }
