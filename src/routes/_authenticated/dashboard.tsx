@@ -470,8 +470,11 @@ function Dashboard() {
                     <div className="flex items-center gap-3">
                       <ScoreRing value={healthScore} color={scoreColor} />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">Saúde das contas</p>
-                        <p className="text-[11px] text-muted-foreground">{healthSummary.ok} de {healthTotal} saudáveis</p>
+                        <p className="text-[13px] font-medium text-foreground">Saúde das contas</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          <b className="text-foreground tabular-nums">{healthSummary.ok}</b> de{" "}
+                          <span className="tabular-nums">{healthTotal}</span> contas saudáveis
+                        </p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -658,22 +661,32 @@ function StatTile({ color, label, n }: { color: string; label: string; n: number
 }
 
 function ScoreRing({ value, color }: { value: number; color: string }) {
-  const r = 16;
+  const r = 19;
   const circ = 2 * Math.PI * r;
   const v = Math.max(0, Math.min(100, value));
   const off = circ * (1 - v / 100);
+  const gid = "ring-" + color.replace(/[^a-z0-9]/gi, "");
   return (
-    <div className="relative h-12 w-12 shrink-0">
-      <svg viewBox="0 0 40 40" className="h-12 w-12 -rotate-90">
-        <circle cx="20" cy="20" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3.5" />
+    <div className="relative h-14 w-14 shrink-0">
+      <svg viewBox="0 0 48 48" className="h-14 w-14 -rotate-90">
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={color} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.55} />
+          </linearGradient>
+        </defs>
+        <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="4" />
         <circle
-          cx="20" cy="20" r={r} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round"
+          cx="24" cy="24" r={r} fill="none" stroke={`url(#${gid})`} strokeWidth="4" strokeLinecap="round"
           strokeDasharray={circ} strokeDashoffset={off}
-          style={{ transition: "stroke-dashoffset .6s ease" }}
+          style={{ transition: "stroke-dashoffset .7s cubic-bezier(.2,.7,.2,1)", filter: `drop-shadow(0 0 5px ${color}55)` }}
         />
       </svg>
-      <span className="absolute inset-0 grid place-items-center text-[11px] font-semibold tabular-nums" style={{ color }}>
-        {v}%
+      <span className="absolute inset-0 grid place-items-center">
+        <span className="flex items-baseline gap-px" style={{ color }}>
+          <span className="text-[14px] font-semibold tabular-nums leading-none">{v}</span>
+          <span className="text-[8px] font-medium">%</span>
+        </span>
       </span>
     </div>
   );
