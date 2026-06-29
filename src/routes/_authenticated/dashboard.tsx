@@ -327,7 +327,7 @@ function Dashboard() {
         </div>
 
         {/* Desempenho (área) + medidor */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
           <Panel title="Desempenho" icon={Activity} className="lg:col-span-2">
             <div className="px-6 pt-5 pb-1 flex items-end justify-between">
               <div>
@@ -383,20 +383,12 @@ function Dashboard() {
             </div>
           </Panel>
 
-          {/* Coluna direita: taxa de conclusão + widget de saúde */}
-          <div className="space-y-4">
-          {/* Medidor de taxa de sucesso */}
-          <Panel title="Taxa de conclusão" icon={Heart}>
-            <div className="relative grid place-items-center py-6">
-              <div className="relative h-44 w-44">
+          {/* Conclusão & saúde — fundidos num card só */}
+          <Panel title="Conclusão & saúde" icon={Heart}>
+            <div className="grid place-items-center py-5">
+              <div className="relative h-36 w-36">
                 <ResponsiveContainer width="100%" height="100%">
-                  <RadialBarChart
-                    innerRadius="74%"
-                    outerRadius="100%"
-                    data={[{ value: successRate }]}
-                    startAngle={220}
-                    endAngle={-40}
-                  >
+                  <RadialBarChart innerRadius="74%" outerRadius="100%" data={[{ value: successRate }]} startAngle={220} endAngle={-40}>
                     <defs>
                       <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
                         <stop offset="0%" stopColor={BRAND} />
@@ -404,45 +396,31 @@ function Dashboard() {
                       </linearGradient>
                     </defs>
                     <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                    <RadialBar
-                      background={{ fill: "rgba(255,255,255,0.06)" }}
-                      dataKey="value"
-                      cornerRadius={20}
-                      fill="url(#gaugeGrad)"
-                    />
+                    <RadialBar background={{ fill: "rgba(255,255,255,0.06)" }} dataKey="value" cornerRadius={20} fill="url(#gaugeGrad)" />
                   </RadialBarChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 grid place-items-center">
                   <div className="text-center">
-                    <p className="text-3xl font-light text-foreground tabular-nums leading-none">{successRate}%</p>
-                    <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">sucesso</p>
+                    <p className="text-2xl font-light text-foreground tabular-nums leading-none">{successRate}%</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">conclusão</p>
                   </div>
                 </div>
               </div>
-              <div className="mt-2 flex items-center gap-4 text-xs">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full" style={{ background: EMERALD }} />
-                  {statusBreak.completed} ok
-                </span>
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full" style={{ background: RED }} />
-                  {statusBreak.failed} falhas
-                </span>
+              <div className="mt-1 flex items-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: EMERALD }} />{statusBreak.completed} ok</span>
+                <span className="flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: RED }} />{statusBreak.failed} falhas</span>
               </div>
             </div>
-          </Panel>
 
-            {/* Saúde das contas — widget compacto */}
-            <Panel title="Saúde das contas" icon={ShieldAlert}>
+            {/* Saúde das contas */}
+            <div className="border-t border-white/[0.06] p-4 space-y-3">
               {healthList === null ? (
-                <p className="px-4 py-4 text-[11px] text-muted-foreground">
-                  Monitoramento indisponível — rode os SQLs de cota.
-                </p>
+                <p className="text-[11px] text-muted-foreground">Saúde indisponível — rode os SQLs de cota.</p>
               ) : (
-                <div className="p-4 space-y-3">
+                <>
                   <div className="flex items-center gap-3">
                     <span
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[13px] font-semibold tabular-nums border"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[12px] font-semibold tabular-nums border"
                       style={{
                         color: healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED,
                         borderColor: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "44",
@@ -452,7 +430,7 @@ function Dashboard() {
                       {healthScore}%
                     </span>
                     <div className="min-w-0">
-                      <p className="text-sm text-foreground">Saúde geral</p>
+                      <p className="text-sm text-foreground">Saúde das contas</p>
                       <p className="text-[11px] text-muted-foreground">{healthSummary.ok} de {healthTotal} saudáveis</p>
                     </div>
                   </div>
@@ -467,54 +445,27 @@ function Dashboard() {
                       <ShieldCheck className="h-3.5 w-3.5" /> Tudo certo — nada perto dos limites.
                     </p>
                   ) : (
-                    <div className="border-t border-white/[0.06] pt-2 space-y-1 max-h-36 overflow-auto">
-                      {attention.slice(0, 6).map((h) => (
+                    <div className="border-t border-white/[0.06] pt-2 space-y-1 max-h-32 overflow-auto">
+                      {attention.slice(0, 5).map((h) => (
                         <div key={h.id} className="flex items-center gap-2 text-[11px]">
                           <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: h.color }} />
                           <span className="truncate flex-1 text-muted-foreground">@{h.username}</span>
                           <span className="shrink-0 tabular-nums" style={{ color: h.color }}>{h.label}</span>
                         </div>
                       ))}
-                      {attention.length > 6 && (
-                        <p className="text-[10px] text-muted-foreground pt-0.5">+{attention.length - 6} outra(s)</p>
+                      {attention.length > 5 && (
+                        <p className="text-[10px] text-muted-foreground pt-0.5">+{attention.length - 5} outra(s)</p>
                       )}
                     </div>
                   )}
-                </div>
+                </>
               )}
-            </Panel>
-          </div>
-        </div>
-
-        {/* Feed + distribuição + ranking */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-          {/* Log de atividades */}
-          <Panel title="Log de atividades" icon={Activity}>
-            <div className="divide-y divide-white/[0.05] max-h-72 overflow-auto">
-              {(data?.recentLogs ?? []).length === 0 && (
-                <div className="px-6 py-12 text-center text-xs text-muted-foreground">
-                  Nenhum evento registrado ainda.
-                </div>
-              )}
-              {data?.recentLogs.map((log) => (
-                <div key={log.id} className="px-5 py-3 flex items-start gap-3 transition-colors hover:bg-white/[0.03]">
-                  <span
-                    className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{
-                      background: log.level === "error" ? RED : log.level === "warn" ? AMBER : EMERALD,
-                      boxShadow: `0 0 8px ${log.level === "error" ? RED : log.level === "warn" ? AMBER : EMERALD}`,
-                    }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] text-foreground leading-snug line-clamp-2">{log.message}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-                      {new Date(log.created_at).toLocaleString("pt-BR")}
-                    </p>
-                  </div>
-                </div>
-              ))}
             </div>
           </Panel>
+        </div>
+
+        {/* Distribuição + ranking */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
 
           {/* Distribuição */}
           <Panel title="Distribuição de ações" icon={Workflow}>
