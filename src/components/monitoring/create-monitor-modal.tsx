@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { testMonitorTargets } from "@/lib/monitoring.functions";
@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Repeat2, MessageCircle, Zap, Search, Check, Loader2, CheckCircle2, XCircle, Heart } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap, Check, Loader2, CheckCircle2, XCircle, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +56,15 @@ function uid() {
   return "node_" + Math.random().toString(36).slice(2, 10);
 }
 
+function StepLabel({ n, text }: { n: number; text: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full gradient-brand text-white text-[10px] font-semibold">{n}</span>
+      <span className="text-xs uppercase tracking-wider text-muted-foreground">{text}</span>
+    </span>
+  );
+}
+
 export function CreateMonitorModal({
   open,
   onOpenChange,
@@ -79,12 +88,25 @@ export function CreateMonitorModal({
   const [rotateEvery, setRotateEvery] = useState(10);
   const [likeBefore, setLikeBefore] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
-  const [acctFilter, setAcctFilter] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const shownAccounts = accounts.filter((a) =>
-    a.username.toLowerCase().includes(acctFilter.trim().toLowerCase()),
-  );
+  // Pastas + a qual pasta cada conta pertence (pra selecionar por pasta).
+  const { data: folders = [] } = useQuery({
+    queryKey: ["account_folders"],
+    queryFn: async () => {
+      const { data } = await supabase.from("account_folders").select("id, name").order("name");
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+  const { data: folderMap = {} } = useQuery({
+    queryKey: ["monitor_account_folder_map"],
+    queryFn: async () => {
+      const { data } = await supabase.from("twitter_accounts").select("id, folder_id").neq("status", "banned");
+      const m: Record<string, string | null> = {};
+      for (const a of data ?? []) m[(a as any).id] = (a as any).folder_id ?? null;
+      return m;
+    },
+  });
 
   const actionMeta = ACTIONS.find((a) => a.value === action)!;
   const handles = targets
@@ -92,8 +114,23 @@ export function CreateMonitorModal({
     .map((h) => h.replace(/^@/, "").trim())
     .filter(Boolean);
 
-  function toggleAcc(id: string) {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  // Contas (do prop) que pertencem a uma "visão": "__all__" | "__none__" | folderId
+  function accountIdsOf(view: string): string[] {
+    return accounts
+      .filter((a) =>
+        view === "__all__" ? true : view === "__none__" ? !folderMap[a.id] : folderMap[a.id] === view,
+      )
+      .map((a) => a.id);
+  }
+  function folderFullyOn(view: string): boolean {
+    const ids = accountIdsOf(view);
+    return ids.length > 0 && ids.every((id) => selected.includes(id));
+  }
+  function toggleFolder(view: string) {
+    const ids = accountIdsOf(view);
+    setSelected((s) =>
+      folderFullyOn(view) ? s.filter((id) => !ids.includes(id)) : [...new Set([...s, ...ids])],
+    );
   }
 
   async function handleTest() {
@@ -203,9 +240,7 @@ export function CreateMonitorModal({
 
         <div className="space-y-4 mt-1">
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              @ alvo (um ou vários)
-            </Label>
+            <StepLabel n={1} text="Quem monitorar (@ alvo)" />
             <Textarea
               rows={2}
               value={targets}
@@ -249,9 +284,7 @@ export function CreateMonitorModal({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Ação das suas contas
-            </Label>
+            <StepLabel n={2} text="O que suas contas fazem" />
             <div className="grid grid-cols-3 gap-2">
               {ACTIONS.map((a) => {
                 const Icon = a.icon;
@@ -316,9 +349,7 @@ export function CreateMonitorModal({
           )}
 
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Intervalo de checagem (humano)
-            </Label>
+            <StepLabel n={3} text="Com que frequência checar" />
             <button
               type="button"
               onClick={() => setTestMode(!testMode)}
@@ -418,11 +449,9 @@ export function CreateMonitorModal({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Suas contas que vão agir
-              </Label>
+              <StepLabel n={4} text="Quais pastas de contas vão agir" />
               <span className="text-[11px] text-muted-foreground">
-                <b className="text-foreground tabular-nums">{selected.length}</b> selecionada(s)
+                <b className="text-foreground tabular-nums">{selected.length}</b> conta(s)
               </span>
             </div>
             {accounts.length === 0 ? (
@@ -430,65 +459,42 @@ export function CreateMonitorModal({
                 Nenhuma conta cadastrada ainda. Adicione contas em "Contas &amp; Proxies".
               </p>
             ) : (
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
-                <div className="flex items-center gap-2 px-2.5 py-2 border-b border-white/[0.06]">
-                  <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <input
-                    value={acctFilter}
-                    onChange={(e) => setAcctFilter(e.target.value)}
-                    placeholder="Buscar @conta…"
-                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                  />
-                  <button
-                    type="button"
-                    className="text-[11px] text-brand hover:underline shrink-0"
-                    onClick={() => {
-                      const ids = shownAccounts.map((a) => a.id);
-                      const allOn = ids.length > 0 && ids.every((id) => selected.includes(id));
-                      setSelected(
-                        allOn
-                          ? selected.filter((id) => !ids.includes(id))
-                          : [...new Set([...selected, ...ids])],
-                      );
-                    }}
-                  >
-                    {shownAccounts.length > 0 && shownAccounts.every((a) => selected.includes(a.id))
-                      ? "Limpar"
-                      : "Todas"}
-                  </button>
-                </div>
-                <div className="max-h-44 overflow-auto p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                  {shownAccounts.map((a) => {
-                    const on = selected.includes(a.id);
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() => toggleAcc(a.id)}
-                        className={cn(
-                          "flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
-                          on ? "bg-accent" : "hover:bg-white/[0.04]",
-                        )}
-                      >
-                        <span
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {(() => {
+                    const chips = [{ key: "__all__", name: "Todas" }];
+                    if (accountIdsOf("__none__").length) chips.push({ key: "__none__", name: "Sem pasta" });
+                    for (const f of folders) if (accountIdsOf(f.id).length) chips.push({ key: f.id, name: f.name });
+                    return chips.map((c) => {
+                      const ids = accountIdsOf(c.key);
+                      const full = ids.length > 0 && ids.every((id) => selected.includes(id));
+                      const some = !full && ids.some((id) => selected.includes(id));
+                      return (
+                        <button
+                          key={c.key}
+                          type="button"
+                          onClick={() => toggleFolder(c.key)}
                           className={cn(
-                            "grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
-                            on ? "border-brand bg-brand text-white" : "border-white/15",
+                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors",
+                            full
+                              ? "gradient-brand text-white border-transparent"
+                              : some
+                                ? "border-brand/45 text-foreground bg-brand/10"
+                                : "border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20",
                           )}
                         >
-                          {on && <Check className="h-3 w-3" strokeWidth={3} />}
-                        </span>
-                        <span className="text-xs text-foreground truncate">@{a.username}</span>
-                      </button>
-                    );
-                  })}
-                  {shownAccounts.length === 0 && (
-                    <p className="col-span-full px-2 py-3 text-center text-[11px] text-muted-foreground">
-                      Nenhuma conta encontrada.
-                    </p>
-                  )}
+                          {full && <Check className="h-3 w-3" strokeWidth={3} />}
+                          {c.name}
+                          <span className={cn("tabular-nums", full ? "text-white/80" : "opacity-70")}>{ids.length}</span>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
-              </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Clique numa <b>pasta</b> pra incluir/remover todas as contas dela. As contas dessas pastas é que vão reagir ao alvo.
+                </p>
+              </>
             )}
           </div>
         </div>
