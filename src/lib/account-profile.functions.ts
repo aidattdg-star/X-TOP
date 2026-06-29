@@ -456,3 +456,89 @@ export const schedulePostTweet = createServerFn({ method: "POST" })
     }
     return { flow_id: flow.id, tasks: rows.length, min: minM, max: maxM };
   });
+
+/** Campanha de imagens: distribui as N imagens de uma pasta ao longo de D dias,
+ *  uma por post SEM repetir (embaralhada). cycles = quantas vezes repetir o ciclo
+ *  (loop). Cada conta selecionada roda a campanha. */
+export const scheduleImageCampaign = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: {
+    accountIds: string[];
+    text: string;
+    folderId: string;
+    days: number;
+    cycles?: number;
+  }) =>
+    z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(500),
+      text: z.string().max(280),
+      folderId: z.string().uuid(),
+      days: z.number().min(0.25).max(90),
+      cycles: z.number().int().min(1).max(60).optional(),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const text = data.text.trim();
+    const { data: files } = await context.supabase
+      .from("media_files").select("id").eq("folder_id", data.folderId).eq("user_id", context.userId);
+    if (!files?.length) throw new Error("Pasta vazia — envie imagens antes.");
+    const imageIds = files.map((f) => f.id as string);
+    const cycles = data.cycles ?? 1;
+    const dayMs = data.days * 24 * 60 * 60 * 1000;
+    const base = Date.now();
+
+    const { data: flow, error: fe } = await context.supabase
+      .from("automation_flows")
+      .insert({
+        user_id: context.userId,
+        name: `Campanha de imagens — ${new Date().toLocaleString("pt-BR")}`,
+        description: `${imageIds.length} imagem(ns) em ${data.days} dia(s)${cycles > 1 ? ` × ${cycles} ciclos` : ""}`,
+        status: "draft",
+        react_flow_data: { nodes: [], edges: [] } as any,
+        account_ids: [],
+      })
+      .select("id")
+      .single();
+    if (fe || !flow) throw new Error(`Falha ao criar campanha: ${fe?.message}`);
+
+    const shuffle = <T,>(a: T[]): T[] => {
+      const r = a.slice();
+      for (let i = r.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [r[i], r[j]] = [r[j], r[i]];
+      }
+      return r;
+    };
+
+    const rows: any[] = [];
+    for (const accId of data.accountIds) {
+      // desync entre contas: cada conta começa com um deslocamento aleatório
+      const acctOffset = Math.random() * (dayMs / Math.max(1, imageIds.length));
+      let cycleStart = base + acctOffset;
+      for (let c = 0; c < cycles; c++) {
+        const order = shuffle(imageIds);
+        const n = order.length;
+        for (let i = 0; i < n; i++) {
+          // posição do post dentro do span de D dias, com jitter
+          const frac = (i + 0.5 + (Math.random() - 0.5) * 0.7) / n;
+          const at = cycleStart + Math.max(0, Math.min(1, frac)) * dayMs;
+          rows.push({
+            user_id: context.userId,
+            flow_id: flow.id,
+            twitter_account_id: accId,
+            action_type: "action.post_tweet",
+            payload: { config: { text, media_file_id: order[i], anti_duplicate: true } },
+            scheduled_for: new Date(at).toISOString(),
+            status: "pending",
+          });
+        }
+        cycleStart += dayMs;
+      }
+    }
+
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await context.supabase.from("execution_queue").insert(rows.slice(i, i + 500) as never);
+      if (error) throw new Error(`Falha ao agendar campanha: ${error.message}`);
+    }
+    return { flow_id: flow.id, tasks: rows.length, images: imageIds.length, cycles, days: data.days };
+  });

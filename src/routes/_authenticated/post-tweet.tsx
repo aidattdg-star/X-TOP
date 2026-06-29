@@ -7,8 +7,8 @@ import { PageHeader } from "@/components/page-header";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { postTweetToAccounts, schedulePostTweet } from "@/lib/account-profile.functions";
-import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign } from "@/lib/account-profile.functions";
+import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
   component: PostTweetPage,
@@ -24,10 +24,13 @@ type PostResult = { username?: string; ok: boolean; url?: string; error?: string
 function PostTweetPage() {
   const runPost = useServerFn(postTweetToAccounts);
   const runSchedule = useServerFn(schedulePostTweet);
+  const runCampaign = useServerFn(scheduleImageCampaign);
 
-  const [humanized, setHumanized] = useState(false);
+  const [ritmo, setRitmo] = useState<"now" | "human" | "campaign">("now");
   const [minMin, setMinMin] = useState(2);
   const [maxMin, setMaxMin] = useState(10);
+  const [days, setDays] = useState(3);
+  const [cycles, setCycles] = useState(1);
   const [results, setResults] = useState<PostResult[]>([]);
   const [scheduledMsg, setScheduledMsg] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -138,8 +141,30 @@ function PostTweetPage() {
       mediaFileId: mediaMode === "same" ? mediaFileId : undefined,
     };
 
+    // CAMPANHA: distribui as imagens da pasta em N dias, sem repetir (loop opcional)
+    if (ritmo === "campaign") {
+      if (mediaMode !== "random" || !mediaFolderId) {
+        setBusy(false);
+        return toast.error('Na campanha, escolha "Aleatória da pasta" e uma pasta com imagens.');
+      }
+      try {
+        const r = await runCampaign({
+          data: { accountIds: selected, text: text.trim(), folderId: mediaFolderId, days, cycles },
+        });
+        setScheduledMsg(
+          `Campanha criada: ${r.images} imagem(ns) distribuída(s) em ${r.days} dia(s)${r.cycles > 1 ? ` × ${r.cycles} ciclos` : ""}, sem repetir, por conta. ${r.tasks} post(s) agendado(s). O robô publica sozinho — acompanhe em Logs.`,
+        );
+        toast.success(`Campanha agendada: ${r.tasks} post(s)`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Falha ao agendar campanha");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     // MODO HUMANIZADO: agenda na fila e o worker posta em background
-    if (humanized) {
+    if (ritmo === "human") {
       try {
         const r = await runSchedule({
           data: { accountIds: selected, ...common, minMinutes: minMin, maxMinutes: Math.max(minMin, maxMin) },
@@ -358,22 +383,23 @@ function PostTweetPage() {
             <p className="text-sm font-medium text-foreground">Ritmo de envio</p>
           </div>
           <div className="relative flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setHumanized(false)}
-              className={cn("px-3 py-2 text-xs rounded-lg border transition-colors", !humanized ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground")}
-            >
-              Postar agora (imediato)
-            </button>
-            <button
-              type="button"
-              onClick={() => setHumanized(true)}
-              className={cn("px-3 py-2 text-xs rounded-lg border transition-colors", humanized ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground")}
-            >
-              Humanizado (intervalo aleatório)
-            </button>
+            {([
+              { k: "now", label: "Postar agora" },
+              { k: "human", label: "Humanizado (intervalo)" },
+              { k: "campaign", label: "Campanha (imagens em dias)" },
+            ] as const).map((o) => (
+              <button
+                key={o.k}
+                type="button"
+                onClick={() => setRitmo(o.k)}
+                className={cn("px-3 py-2 text-xs rounded-lg border transition-colors", ritmo === o.k ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground")}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
-          {humanized && (
+
+          {ritmo === "human" && (
             <div className="relative space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">A cada</span>
@@ -389,7 +415,37 @@ function PostTweetPage() {
               <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-relaxed">
                 <Dice5 className="h-3.5 w-3.5 text-brand shrink-0 mt-0.5" />
                 <span>
-                  Cada conta posta uma vez, com um tempo <b className="text-foreground">aleatório entre {minMin} e {Math.max(minMin, maxMin)} min</b> entre uma e outra — o robô publica sozinho em background (sem burst), pra reduzir risco de bloqueio. Acompanhe em <b className="text-foreground">Logs</b>.
+                  Cada conta posta uma vez, com um tempo <b className="text-foreground">aleatório entre {minMin} e {Math.max(minMin, maxMin)} min</b> — o robô publica sozinho em background, sem burst.
+                </span>
+              </p>
+            </div>
+          )}
+
+          {ritmo === "campaign" && (
+            <div className="relative space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Distribuir as imagens da pasta em</span>
+                <input type="number" min={0.25} step={0.25} value={days}
+                  onChange={(e) => setDays(Math.max(0.25, Number(e.target.value) || 1))}
+                  className="h-9 w-16 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40" />
+                <span className="text-xs text-muted-foreground">dia(s)</span>
+                <span className="text-xs text-muted-foreground ml-2">· repetir (loop)</span>
+                <input type="number" min={1} step={1} value={cycles}
+                  onChange={(e) => setCycles(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  className="h-9 w-14 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40" />
+                <span className="text-xs text-muted-foreground">vez(es)</span>
+              </div>
+              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-relaxed">
+                <CalendarClock className="h-3.5 w-3.5 text-brand shrink-0 mt-0.5" />
+                <span>
+                  {mediaFolderCount != null && mediaFolderCount > 0 ? (
+                    <>
+                      <b className="text-foreground">{mediaFolderCount} imagem(ns)</b> da pasta serão postadas <b className="text-foreground">uma por post, sem repetir</b>, espalhadas em <b className="text-foreground">{days} dia(s)</b>
+                      {cycles > 1 ? <> e repetidas <b className="text-foreground">{cycles}×</b></> : null}. Cada conta selecionada roda a campanha. Use o modo de mídia <b className="text-foreground">"Aleatória da pasta"</b> acima.
+                    </>
+                  ) : (
+                    <>Escolha acima o modo <b className="text-foreground">"Aleatória da pasta"</b> e uma pasta <b className="text-foreground">com imagens</b>. Aí elas serão distribuídas em {days} dia(s), sem repetir.</>
+                  )}
                 </span>
               </p>
             </div>
@@ -404,9 +460,9 @@ function PostTweetPage() {
             className="px-5 py-2.5 text-sm font-medium rounded-xl gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {humanized ? "Agendar" : "Postar"} em {selected.length || ""} conta(s)
+            {ritmo === "now" ? "Postar" : "Agendar"} em {selected.length || ""} conta(s)
           </button>
-          {busy && !humanized && (
+          {busy && ritmo === "now" && (
             <div className="flex-1 max-w-xs">
               <Progress value={progress.total ? Math.round((progress.done / progress.total) * 100) : 0} className="h-1.5" />
               <p className="mt-1 text-[10px] text-muted-foreground">
