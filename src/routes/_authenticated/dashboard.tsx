@@ -85,6 +85,23 @@ function greeting(): string {
   return "Boa noite";
 }
 
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
+function timeAgo(ts: number): string {
+  if (!ts) return "";
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "agora";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `há ${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h}h`;
+  return `há ${Math.floor(h / 24)}d`;
+}
+
 function Dashboard() {
   const [period, setPeriod] = useState<PeriodKey>("7d");
   const [email, setEmail] = useState<string | null>(null);
@@ -134,6 +151,25 @@ function Dashboard() {
         .select("id, username, profile_picture_url, status, rt_count, like_count, cooldown_until, last_used_at, limited_at");
       if (error) return null; // colunas ausentes — esconde o painel
       return (data ?? []) as any[];
+    },
+  });
+
+  // Views totais das contas — vem do snapshot coletado em segundo plano.
+  const { data: viewStats } = useQuery({
+    queryKey: ["account-view-stats"],
+    refetchInterval: 30000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("account_view_stats")
+        .select("views, updated_at");
+      if (error) return null; // tabela ausente — esconde
+      const rows = (data ?? []) as any[];
+      const total = rows.reduce((s: number, r: any) => s + Number(r.views || 0), 0);
+      const updated = rows.reduce((m: number, r: any) => {
+        const t = new Date(r.updated_at).getTime();
+        return t > m ? t : m;
+      }, 0);
+      return { total, accounts: rows.length, updated };
     },
   });
 
@@ -328,13 +364,23 @@ function Dashboard() {
 
         {/* Desempenho (área) + medidor */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
-          <Panel title="Desempenho" icon={Activity} className="lg:col-span-2">
-            <div className="px-6 pt-5 pb-1 flex items-end justify-between">
+          <Panel title="Views & desempenho" icon={Activity} className="lg:col-span-2">
+            <div className="px-6 pt-5 pb-1 flex items-end justify-between gap-4">
               <div>
-                <p className="text-3xl font-light text-foreground tabular-nums leading-none">{totalDone}</p>
-                <p className="mt-1.5 text-xs text-muted-foreground">ações concluídas no período</p>
+                <p className="text-3xl font-light text-foreground tabular-nums leading-none">
+                  {viewStats == null ? "—" : fmtNum(viewStats.total)}
+                </p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  views totais das contas
+                  {viewStats && viewStats.accounts > 0 && (
+                    <> · {viewStats.accounts} conta(s){viewStats.updated ? ` · atualizado ${timeAgo(viewStats.updated)}` : ""}</>
+                  )}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">últimos {days} dias</p>
+              <div className="text-right shrink-0">
+                <p className="text-sm text-foreground tabular-nums leading-none">{totalDone}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">ações · últimos {days}d</p>
+              </div>
             </div>
             <div className="h-52 px-2 pb-3 pt-3">
               <ResponsiveContainer width="100%" height="100%">

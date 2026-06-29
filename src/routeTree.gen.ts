@@ -29,6 +29,7 @@ import { Route as AuthenticatedAutomationsBuilderIndexRouteImport } from './rout
 import { Route as ApiPublicHooksSessionKeepaliveRouteImport } from './routes/api/public/hooks/session-keepalive'
 import { Route as ApiPublicHooksRunQueueRouteImport } from './routes/api/public/hooks/run-queue'
 import { Route as ApiPublicHooksEducationRouteImport } from './routes/api/public/hooks/education'
+import { Route as ApiPublicHooksCollectViewsRouteImport } from './routes/api/public/hooks/collect-views'
 import { Route as AuthenticatedAutomationsBuilderIdRouteImport } from './routes/_authenticated/automations.builder.$id'
 
 const PendingRoute = PendingRouteImport.update({
@@ -135,6 +136,12 @@ const ApiPublicHooksEducationRoute = ApiPublicHooksEducationRouteImport.update({
   path: '/api/public/hooks/education',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksCollectViewsRoute =
+  ApiPublicHooksCollectViewsRouteImport.update({
+    id: '/api/public/hooks/collect-views',
+    path: '/api/public/hooks/collect-views',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAutomationsBuilderIdRoute =
   AuthenticatedAutomationsBuilderIdRouteImport.update({
     id: '/builder/$id',
@@ -159,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
+  '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
   '/api/public/hooks/run-queue': typeof ApiPublicHooksRunQueueRoute
   '/api/public/hooks/session-keepalive': typeof ApiPublicHooksSessionKeepaliveRoute
@@ -180,6 +188,7 @@ export interface FileRoutesByTo {
   '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/automations': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
+  '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
   '/api/public/hooks/run-queue': typeof ApiPublicHooksRunQueueRoute
   '/api/public/hooks/session-keepalive': typeof ApiPublicHooksSessionKeepaliveRoute
@@ -204,6 +213,7 @@ export interface FileRoutesById {
   '/_authenticated/post-tweet': typeof AuthenticatedPostTweetRoute
   '/_authenticated/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/_authenticated/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
+  '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
   '/api/public/hooks/run-queue': typeof ApiPublicHooksRunQueueRoute
   '/api/public/hooks/session-keepalive': typeof ApiPublicHooksSessionKeepaliveRoute
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | '/post-tweet'
     | '/automations/'
     | '/automations/builder/$id'
+    | '/api/public/hooks/collect-views'
     | '/api/public/hooks/education'
     | '/api/public/hooks/run-queue'
     | '/api/public/hooks/session-keepalive'
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/post-tweet'
     | '/automations'
     | '/automations/builder/$id'
+    | '/api/public/hooks/collect-views'
     | '/api/public/hooks/education'
     | '/api/public/hooks/run-queue'
     | '/api/public/hooks/session-keepalive'
@@ -272,6 +284,7 @@ export interface FileRouteTypes {
     | '/_authenticated/post-tweet'
     | '/_authenticated/automations/'
     | '/_authenticated/automations/builder/$id'
+    | '/api/public/hooks/collect-views'
     | '/api/public/hooks/education'
     | '/api/public/hooks/run-queue'
     | '/api/public/hooks/session-keepalive'
@@ -283,6 +296,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PendingRoute: typeof PendingRoute
+  ApiPublicHooksCollectViewsRoute: typeof ApiPublicHooksCollectViewsRoute
   ApiPublicHooksEducationRoute: typeof ApiPublicHooksEducationRoute
   ApiPublicHooksRunQueueRoute: typeof ApiPublicHooksRunQueueRoute
   ApiPublicHooksSessionKeepaliveRoute: typeof ApiPublicHooksSessionKeepaliveRoute
@@ -430,6 +444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksEducationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/collect-views': {
+      id: '/api/public/hooks/collect-views'
+      path: '/api/public/hooks/collect-views'
+      fullPath: '/api/public/hooks/collect-views'
+      preLoaderRoute: typeof ApiPublicHooksCollectViewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/automations/builder/$id': {
       id: '/_authenticated/automations/builder/$id'
       path: '/builder/$id'
@@ -496,6 +517,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PendingRoute: PendingRoute,
+  ApiPublicHooksCollectViewsRoute: ApiPublicHooksCollectViewsRoute,
   ApiPublicHooksEducationRoute: ApiPublicHooksEducationRoute,
   ApiPublicHooksRunQueueRoute: ApiPublicHooksRunQueueRoute,
   ApiPublicHooksSessionKeepaliveRoute: ApiPublicHooksSessionKeepaliveRoute,
