@@ -92,15 +92,34 @@ async function logProfile(
   status: "ok" | "failed",
   error?: string,
 ) {
-  await supabase.from("profile_update_log").insert({
-    user_id: userId,
-    twitter_account_id: accountId,
-    field,
-    old_value: oldValue,
-    new_value: newValue,
-    status,
-    error: error ?? null,
-  });
+  // Best-effort: registrar o log NUNCA deve derrubar a operação real.
+  // (ex.: enum profile_field sem 'website' até rodar ADD_WEBSITE_FIELD.sql)
+  try {
+    const { error: insErr } = await supabase.from("profile_update_log").insert({
+      user_id: userId,
+      twitter_account_id: accountId,
+      field,
+      old_value: oldValue,
+      new_value: newValue,
+      status,
+      error: error ?? null,
+    });
+    // Se o enum ainda não tem 'website', cai de volta pra 'bio' só pra registrar
+    // (assim a conta entra em "Editadas" e aparece no log mesmo antes do SQL).
+    if (insErr && field === "website") {
+      await supabase.from("profile_update_log").insert({
+        user_id: userId,
+        twitter_account_id: accountId,
+        field: "bio",
+        old_value: oldValue,
+        new_value: newValue ? `🔗 ${newValue}` : newValue,
+        status,
+        error: error ?? null,
+      });
+    }
+  } catch {
+    /* logging é best-effort */
+  }
 }
 
 // ============================================================================
