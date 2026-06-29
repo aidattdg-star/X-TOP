@@ -273,6 +273,55 @@ select optgroup {
   opacity: 1;
 }
 
+/* ---- LED edge: feixe fino e brilhante percorrendo a borda do card ---- */
+@property --led-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.led-edge {
+  position: relative;
+}
+.led-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.25px;
+  /* arco curto e brilhante que gira ao redor da borda */
+  background: conic-gradient(
+    from var(--led-angle),
+    transparent 0deg,
+    transparent 268deg,
+    oklch(0.82 0.16 285 / 0.85) 312deg,
+    oklch(0.9 0.13 215 / 0.95) 338deg,
+    oklch(0.82 0.16 285 / 0.85) 352deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  animation: led-travel 5.5s linear infinite;
+  animation-delay: var(--led-delay, 0s);
+}
+@keyframes led-travel {
+  to { --led-angle: 360deg; }
+}
+/* fallback p/ navegadores sem @property: brilho estático sutil na borda */
+@supports not (background: conic-gradient(from var(--led-angle), #000, #fff)) {
+  .led-edge::after {
+    animation: none;
+    background: linear-gradient(140deg, oklch(0.82 0.16 285 / 0.5), transparent 40%, transparent 60%, oklch(0.85 0.13 215 / 0.4));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led-edge::after { animation: none; }
+}
+
 /* Custom scrollbars */
 * {
   scrollbar-width: thin;

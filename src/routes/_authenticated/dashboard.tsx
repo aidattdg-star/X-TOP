@@ -23,6 +23,9 @@ import {
   Activity,
   Trophy,
   Heart,
+  ShieldAlert,
+  ShieldCheck,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,6 +47,31 @@ const ACTION_META: Record<string, { label: string; color: string }> = {
   "action.comment": { label: "Comentários", color: PINK },
   "action.mass_engage": { label: "RT/Like massa", color: EMERALD },
 };
+
+// Cota antes do refresh de 1h (espelha o worker run-queue): 3 RT + 3 like.
+const RT_QUOTA = 3;
+const LIKE_QUOTA = 3;
+// Volume diário (ações concluídas em 24h) acima do qual a conta entra em "atenção".
+const DAILY_WARN = 40;
+
+type HealthLevel = "ok" | "warn" | "cooldown" | "limited" | "dead";
+const LEVEL_ORDER: Record<HealthLevel, number> = { limited: 0, dead: 1, warn: 2, cooldown: 3, ok: 4 };
+
+function classifyHealth(
+  a: { status: string; rt_count?: number | null; like_count?: number | null; cooldown_until?: string | null; limited_at?: string | null },
+  actions24h: number,
+): { level: HealthLevel; label: string; color: string } {
+  const cd = a.cooldown_until ? new Date(a.cooldown_until).getTime() - Date.now() : 0;
+  if (a.status === "banned") return { level: "dead", label: "Banida", color: RED };
+  if (a.status === "suspended") return { level: "dead", label: "Suspensa", color: RED };
+  if (a.status === "limited" || a.limited_at) return { level: "limited", label: "Limitada", color: RED };
+  if (cd > 0) return { level: "cooldown", label: "Em refresh", color: CYAN };
+  const rt = Number(a.rt_count ?? 0);
+  const lk = Number(a.like_count ?? 0);
+  if (rt >= RT_QUOTA - 1 || lk >= LIKE_QUOTA - 1 || actions24h >= DAILY_WARN)
+    return { level: "warn", label: "Próx. do limite", color: AMBER };
+  return { level: "ok", label: "Saudável", color: EMERALD };
+}
 
 const PERIODS = [
   { key: "7d", label: "7 dias", days: 7 },
@@ -97,8 +125,62 @@ function Dashboard() {
     },
   });
 
+  // Saúde & uso — colunas de cota podem não existir até rodar o SQL; isolamos a query.
+  const { data: health } = useQuery({
+    queryKey: ["account-health"],
+    refetchInterval: 15000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("twitter_accounts")
+        .select("id, username, profile_picture_url, status, rt_count, like_count, cooldown_until, last_used_at, limited_at");
+      if (error) return null; // colunas ausentes — esconde o painel
+      return (data ?? []) as any[];
+    },
+  });
+
   const accounts = data?.accounts ?? [];
   const queue = data?.queue ?? [];
+
+  // Ações concluídas por conta nas últimas 24h (volume de uso).
+  const actions24h = useMemo(() => {
+    const since = Date.now() - 86400_000;
+    const m = new Map<string, number>();
+    for (const q of queue) {
+      if (q.status !== "completed" || !q.twitter_account_id) continue;
+      if (new Date(q.created_at).getTime() < since) continue;
+      m.set(q.twitter_account_id, (m.get(q.twitter_account_id) ?? 0) + 1);
+    }
+    return m;
+  }, [queue]);
+
+  const healthList = useMemo(() => {
+    if (!health) return null;
+    return health.map((a) => {
+      const n = actions24h.get(a.id) ?? 0;
+      const c = classifyHealth(a, n);
+      const cdMin = a.cooldown_until
+        ? Math.max(0, Math.round((new Date(a.cooldown_until).getTime() - Date.now()) / 60000))
+        : 0;
+      return { ...a, actions24h: n, cooldownLeftMin: cdMin, ...c };
+    });
+  }, [health, actions24h]);
+
+  const healthSummary = useMemo(() => {
+    const s = { ok: 0, warn: 0, cooldown: 0, limited: 0, dead: 0 } as Record<HealthLevel, number>;
+    for (const h of healthList ?? []) s[h.level as HealthLevel]++;
+    return s;
+  }, [healthList]);
+
+  // Contas que pedem atenção primeiro (limitada > banida > atenção > refresh).
+  const attention = useMemo(() => {
+    if (!healthList) return [];
+    return [...healthList]
+      .filter((h) => h.level !== "ok")
+      .sort((a, b) => (LEVEL_ORDER[a.level as HealthLevel] - LEVEL_ORDER[b.level as HealthLevel]) || b.actions24h - a.actions24h);
+  }, [healthList]);
+
+  const healthTotal = healthList?.length ?? 0;
+  const healthScore = healthTotal ? Math.round((healthSummary.ok / healthTotal) * 100) : 0;
 
   const activeAccounts = accounts.filter((a) => a.status === "active").length;
   const activeFlows = (data?.flows ?? []).filter((f) => f.status === "active").length;
@@ -222,6 +304,7 @@ function Dashboard() {
             hint={`${accounts.length} no total`}
             progress={accounts.length ? activeAccounts / accounts.length : 0}
             color={BRAND}
+            ledDelay="0s"
           />
           <MetricCard
             icon={Server}
@@ -230,6 +313,7 @@ function Dashboard() {
             hint={`${data?.proxies.length ?? 0} cadastrados`}
             progress={data?.proxies.length ? activeProxies / data.proxies.length : 0}
             color={CYAN}
+            ledDelay="-1.4s"
           />
           <MetricCard
             icon={Workflow}
@@ -238,6 +322,7 @@ function Dashboard() {
             hint={`${data?.flows.length ?? 0} cadastrados`}
             progress={data?.flows.length ? activeFlows / data.flows.length : 0}
             color={PINK}
+            ledDelay="-2.8s"
           />
           <MetricCard
             icon={ListChecks}
@@ -246,7 +331,70 @@ function Dashboard() {
             hint={`${queue.length} na janela`}
             progress={queue.length ? pending / queue.length : 0}
             color={AMBER}
+            ledDelay="-4.2s"
           />
+        </div>
+
+        {/* Saúde & uso das contas */}
+        <div className="mt-4">
+          <Panel title="Saúde & uso das contas" icon={ShieldAlert}>
+            {healthList === null ? (
+              <div className="px-6 py-8 text-xs text-muted-foreground">
+                Monitoramento de cota indisponível — rode <b>REFRESH_COUNTERS.sql</b> e{" "}
+                <b>ACCOUNT_LIMITED.sql</b> no Supabase para habilitar o status de uso.
+              </div>
+            ) : (
+              <div className="p-5 space-y-4">
+                {/* score geral + resumo */}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="grid h-12 w-12 place-items-center rounded-2xl text-sm font-semibold tabular-nums border"
+                      style={{
+                        color: healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED,
+                        borderColor: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "55",
+                        background: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "1a",
+                      }}
+                    >
+                      {healthScore}%
+                    </span>
+                    <div>
+                      <p className="text-sm text-foreground">Saúde geral</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {healthSummary.ok} de {healthTotal} contas saudáveis
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-1" />
+                  <div className="flex flex-wrap gap-2">
+                    <HealthChip color={EMERALD} label="Saudável" n={healthSummary.ok} />
+                    <HealthChip color={AMBER} label="Próx. do limite" n={healthSummary.warn} />
+                    <HealthChip color={CYAN} label="Em refresh" n={healthSummary.cooldown} />
+                    <HealthChip color={RED} label="Limitada/Banida" n={healthSummary.limited + healthSummary.dead} />
+                  </div>
+                </div>
+
+                {/* lista de contas que pedem atenção */}
+                {attention.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] px-4 py-4 text-xs text-emerald-300">
+                    <ShieldCheck className="h-4 w-4" />
+                    Tudo certo — nenhuma conta perto dos limites agora.
+                  </div>
+                ) : (
+                  <div>
+                    <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Atenção ({attention.length}) — contas perto dos limites ou descansando
+                    </p>
+                    <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.05] max-h-80 overflow-auto">
+                      {attention.map((h) => (
+                        <HealthRow key={h.id} h={h} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Panel>
         </div>
 
         {/* Desempenho (área) + medidor */}
@@ -469,6 +617,7 @@ function MetricCard({
   hint,
   progress,
   color,
+  ledDelay = "0s",
 }: {
   icon: LucideIcon;
   title: string;
@@ -476,10 +625,14 @@ function MetricCard({
   hint?: string;
   progress: number;
   color: string;
+  ledDelay?: string;
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
   return (
-    <div className="liquid-glass is-interactive group relative overflow-hidden p-5 rounded-2xl">
+    <div
+      className="liquid-glass led-edge is-interactive group relative overflow-hidden p-5 rounded-2xl"
+      style={{ ["--led-delay" as any]: ledDelay }}
+    >
       <span className="sheen" />
       <div className="relative flex items-center gap-2.5">
         <span
@@ -501,7 +654,7 @@ function MetricCard({
 
 function Panel({ title, icon: Icon, children, className = "" }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`liquid-glass rounded-2xl overflow-hidden ${className}`}>
+    <div className={`liquid-glass led-edge rounded-2xl overflow-hidden ${className}`}>
       <div className="relative px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
         <span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[0.06] border border-white/10">
           <Icon className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
@@ -515,4 +668,82 @@ function Panel({ title, icon: Icon, children, className = "" }: { title: string;
 
 function EmptyMini({ text }: { text: string }) {
   return <div className="px-5 py-12 text-center text-xs text-muted-foreground">{text}</div>;
+}
+
+function HealthChip({ color, label, n }: { color: string; label: string; n: number }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px]">
+      <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground tabular-nums font-medium">{n}</span>
+    </span>
+  );
+}
+
+function QuotaPips({ label, used, max }: { label: string; used: number; max: number }) {
+  const fill = used >= max ? RED : used >= max - 1 ? AMBER : BRAND;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="text-muted-foreground w-5 text-right">{label}</span>
+      <span className="inline-flex gap-0.5">
+        {Array.from({ length: max }).map((_, i) => (
+          <span
+            key={i}
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: i < used ? fill : "rgba(255,255,255,0.12)" }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function HealthRow({
+  h,
+}: {
+  h: {
+    id: string;
+    username: string;
+    profile_picture_url: string | null;
+    rt_count?: number | null;
+    like_count?: number | null;
+    actions24h: number;
+    cooldownLeftMin: number;
+    level: HealthLevel;
+    label: string;
+    color: string;
+  };
+}) {
+  const rt = Number(h.rt_count ?? 0);
+  const lk = Number(h.like_count ?? 0);
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-white/[0.03]">
+      <div className="h-8 w-8 shrink-0 rounded-full overflow-hidden bg-white/[0.06] grid place-items-center text-[10px] text-muted-foreground uppercase ring-1 ring-white/10">
+        {h.profile_picture_url ? (
+          <img src={h.profile_picture_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          h.username.slice(0, 2)
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] text-foreground leading-tight">@{h.username}</p>
+        <p className="text-[11px] text-muted-foreground leading-tight">
+          {h.level === "cooldown"
+            ? `volta em ${h.cooldownLeftMin} min`
+            : `${h.actions24h} ações nas últimas 24h`}
+        </p>
+      </div>
+      <div className="hidden sm:flex items-center gap-3 text-[10px]">
+        <QuotaPips label="RT" used={rt} max={RT_QUOTA} />
+        <QuotaPips label="♥" used={lk} max={LIKE_QUOTA} />
+      </div>
+      <span
+        className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border"
+        style={{ color: h.color, borderColor: h.color + "55", background: h.color + "1a" }}
+      >
+        {h.level === "cooldown" && <Clock className="h-3 w-3 mr-1" />}
+        {h.label}
+      </span>
+    </div>
+  );
 }
