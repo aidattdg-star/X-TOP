@@ -256,10 +256,6 @@ function Dashboard() {
 
   return (
     <div className="relative px-4 sm:px-6 lg:px-10 py-6 lg:py-9 max-w-7xl mx-auto">
-      {/* profundidade ambiente */}
-      <div className="pointer-events-none absolute -top-24 -left-16 h-80 w-80 rounded-full bg-brand/15 blur-[120px]" />
-      <div className="pointer-events-none absolute top-40 -right-10 h-72 w-72 rounded-full bg-brand-2/12 blur-[120px]" />
-
       <div className="relative">
         {/* Header com saudação + período */}
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -277,15 +273,15 @@ function Dashboard() {
           </div>
 
           {/* tabs de período */}
-          <div className="inline-flex gap-1 p-1 rounded-xl liquid-glass">
+          <div className="inline-flex gap-0.5 p-0.5 rounded-lg border border-white/[0.08]">
             {PERIODS.map((p) => (
               <button
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
                 className={cn(
-                  "relative px-4 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                  "relative px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors",
                   period === p.key
-                    ? "bg-white/[0.08] text-foreground"
+                    ? "bg-white/[0.06] text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -304,7 +300,6 @@ function Dashboard() {
             hint={`${accounts.length} no total`}
             progress={accounts.length ? activeAccounts / accounts.length : 0}
             color={BRAND}
-            ledDelay="0s"
           />
           <MetricCard
             icon={Server}
@@ -313,7 +308,6 @@ function Dashboard() {
             hint={`${data?.proxies.length ?? 0} cadastrados`}
             progress={data?.proxies.length ? activeProxies / data.proxies.length : 0}
             color={CYAN}
-            ledDelay="-1.4s"
           />
           <MetricCard
             icon={Workflow}
@@ -322,7 +316,6 @@ function Dashboard() {
             hint={`${data?.flows.length ?? 0} cadastrados`}
             progress={data?.flows.length ? activeFlows / data.flows.length : 0}
             color={PINK}
-            ledDelay="-2.8s"
           />
           <MetricCard
             icon={ListChecks}
@@ -331,7 +324,6 @@ function Dashboard() {
             hint={`${queue.length} na janela`}
             progress={queue.length ? pending / queue.length : 0}
             color={AMBER}
-            ledDelay="-4.2s"
           />
         </div>
 
@@ -617,7 +609,6 @@ function MetricCard({
   hint,
   progress,
   color,
-  ledDelay = "0s",
 }: {
   icon: LucideIcon;
   title: string;
@@ -625,43 +616,31 @@ function MetricCard({
   hint?: string;
   progress: number;
   color: string;
-  ledDelay?: string;
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
   return (
-    <div
-      className="liquid-glass led-edge is-interactive group relative overflow-hidden p-5 rounded-2xl"
-      style={{ ["--led-delay" as any]: ledDelay }}
-    >
-      <span className="sheen" />
-      <div className="relative flex items-center gap-2.5">
-        <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10"
-          style={{ background: `${color}1f`, color }}
-        >
-          <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
-        </span>
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+    <div className="group rounded-xl border border-white/[0.06] bg-white/[0.018] p-5 transition-colors hover:border-white/[0.12]">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="h-4 w-4" strokeWidth={1.75} style={{ color }} />
+        <span className="text-[11px] uppercase tracking-[0.14em]">{title}</span>
       </div>
-      <p className="relative mt-4 text-[2rem] leading-none font-light text-foreground tabular-nums">{value}</p>
-      <div className="relative mt-3 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}, ${color}aa)` }} />
+      <p className="mt-4 text-[2rem] leading-none font-light text-foreground tabular-nums">{value}</p>
+      <div className="mt-4 h-[3px] rounded-full bg-white/[0.05] overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color, opacity: 0.55 }} />
       </div>
-      {hint && <p className="relative mt-2 text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="mt-2 text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
 function Panel({ title, icon: Icon, children, className = "" }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`liquid-glass led-edge rounded-2xl overflow-hidden ${className}`}>
-      <div className="relative px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
-        <span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[0.06] border border-white/10">
-          <Icon className="h-3.5 w-3.5 text-brand" strokeWidth={1.75} />
-        </span>
-        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{title}</p>
+    <div className={`rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden ${className}`}>
+      <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
+        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
       </div>
-      <div className="relative">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -672,8 +651,8 @@ function EmptyMini({ text }: { text: string }) {
 
 function HealthChip({ color, label, n }: { color: string; label: string; n: number }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px]">
-      <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1 text-[11px]">
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
       <span className="text-muted-foreground">{label}</span>
       <span className="text-foreground tabular-nums font-medium">{n}</span>
     </span>
