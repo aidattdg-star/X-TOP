@@ -144,10 +144,13 @@
 @layer base {
   * {
     border-color: var(--color-border);
+    /* macOS/Safari: remove o flash azul de toque e evita seleção acidental em UI */
+    -webkit-tap-highlight-color: transparent;
   }
   html, body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale; /* texto mais nítido no macOS */
     text-rendering: optimizeLegibility;
     letter-spacing: -0.011em;
   }

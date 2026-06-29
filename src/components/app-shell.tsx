@@ -101,8 +101,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            style={{ WebkitBackdropFilter: "blur(18px)", backdropFilter: "blur(18px)", willChange: "width", transform: "translateZ(0)" }}
             className={cn(
-              "absolute inset-y-0 left-0 h-screen flex flex-col border-r border-border bg-sidebar backdrop-blur-2xl transition-[width] duration-300 ease-in-out z-30",
+              // transform-gpu + backdrop via style: corrige o repaint do Safari/macOS
+              // ao animar a largura com blur (hover/expandir que ficava "travado").
+              "absolute inset-y-0 left-0 h-screen flex flex-col border-r border-border bg-sidebar transform-gpu transition-[width] duration-300 ease-in-out z-30",
               expanded ? "w-64" : "w-[68px]",
               collapsed && hovered ? "shadow-2xl shadow-black/40" : "",
             )}
