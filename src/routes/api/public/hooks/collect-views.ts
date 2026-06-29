@@ -13,7 +13,7 @@ import { createFileRoute } from "@tanstack/react-router";
 type AuthTokens = { ct0: string; auth_token: string; cookie_string?: string; refreshed?: boolean };
 type ProxyInfo = { ip: string; port: number; username?: string | null; password?: string | null };
 
-const BATCH = 12; // contas por execução
+const BATCH = 8; // contas por execução (margem p/ o timeout de 10s da Vercel)
 
 export const Route = createFileRoute("/api/public/hooks/collect-views")({
   server: {
