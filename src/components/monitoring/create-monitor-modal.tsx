@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Repeat2, MessageCircle, Zap, Search, Check, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap, Search, Check, Loader2, CheckCircle2, XCircle, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +77,7 @@ export function CreateMonitorModal({
   const [testMode, setTestMode] = useState(false);
   const [rotateOn, setRotateOn] = useState(false);
   const [rotateEvery, setRotateEvery] = useState(10);
+  const [likeBefore, setLikeBefore] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
   const [acctFilter, setAcctFilter] = useState("");
   const [saving, setSaving] = useState(false);
@@ -129,6 +130,8 @@ export function CreateMonitorModal({
         const actionId = uid();
         const actionConfig: Record<string, unknown> = {};
         if (actionMeta.needsText) actionConfig.text = text.trim();
+        // Curtir antes de comentar/retweetar (sequência humana). Não se aplica a "Postar tweet".
+        if (action !== "action.post_tweet") actionConfig.like_before = likeBefore;
         return {
           user_id: u.user!.id,
           name: `Monitor @${handle}`,
@@ -274,6 +277,27 @@ export function CreateMonitorModal({
               })}
             </div>
             <p className="text-xs text-muted-foreground">{actionMeta.hint}</p>
+            {action !== "action.post_tweet" && (
+              <button
+                type="button"
+                onClick={() => setLikeBefore(!likeBefore)}
+                className={cn(
+                  "flex items-center gap-2.5 w-full rounded-xl border px-3 py-2.5 transition-colors text-left mt-1",
+                  likeBefore ? "border-brand/50 bg-brand/10" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+                )}
+              >
+                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-lg", likeBefore ? "gradient-brand text-white" : "bg-white/[0.06] text-muted-foreground")}>
+                  <Heart className="h-3.5 w-3.5" />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-xs font-medium text-foreground">Curtir antes de {action === "action.comment" ? "comentar" : "retweetar"}</span>
+                  <span className="block text-[11px] text-muted-foreground">sequência humana (curtir → agir) — gera mais confiança e menos cara de bot</span>
+                </span>
+                <span className={cn("h-4 w-4 rounded-full border-2 grid place-items-center", likeBefore ? "border-brand" : "border-white/20")}>
+                  {likeBefore && <span className="h-2 w-2 rounded-full gradient-brand" />}
+                </span>
+              </button>
+            )}
           </div>
 
           {actionMeta.needsText && (

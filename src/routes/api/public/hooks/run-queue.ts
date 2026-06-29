@@ -494,12 +494,20 @@ async function runTask(admin: any, task: any) {
       }
       case "action.retweet": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
+        // Sequência humana: curtir antes de retweetar (gera confiança, menos cara de bot).
+        if (config.like_before) {
+          try { await likeTweet(tokens, id, dispatcher); } catch { /* já curtido/tolerado */ }
+        }
         await retweet(tokens, id, dispatcher);
         await bumpAndMaybeCooldown(admin, acc.id, "retweet");
         break;
       }
       case "action.comment": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
+        // Sequência humana: curtir o tweet antes de responder.
+        if (config.like_before) {
+          try { await likeTweet(tokens, id, dispatcher); } catch { /* já curtido/tolerado */ }
+        }
         let text = pickTextVariant(String(config.text ?? "").trim());
         if (!text) throw new Error("Comentário vazio");
         if (config.anti_duplicate !== false) {
