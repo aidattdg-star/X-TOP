@@ -179,8 +179,10 @@ function MonitoringPage() {
       let health: "ok" | "warn" | "error" | "idle" = "idle";
       let healthMsg = "";
       const recent = logs.slice(0, 10);
+      // Ruídos antigos que não são problema de verdade — não contam como aviso.
+      const NOISE = /inv[áa]lida|0 tweets recentes/i;
       const recentErr = recent.find((l) => l.level === "error");
-      const recentWarn = recent.find((l) => l.level === "warn");
+      const recentWarn = recent.find((l) => l.level === "warn" && !NOISE.test(l.message));
 
       if (flow.status !== "active") {
         health = "idle";
