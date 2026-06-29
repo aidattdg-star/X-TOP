@@ -17,6 +17,11 @@ export type MassEngageInput = {
   instant?: boolean;
   min_minutes: number;
   max_minutes: number;
+  // Engajamento por pasta: limita o nº de posts (tweets de origem) engajados.
+  max_posts?: number;
+  // Distribuição mínima obrigatória: o lote inteiro é esticado para durar ao
+  // menos este tempo (ex.: 120 = 2h), mantendo o ritmo humanizado randômico.
+  min_total_minutes?: number;
 };
 
 function parseTweetId(url: string): string | null {
@@ -79,6 +84,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
 
     // 2) Posts entre contas — buscar último tweet de cada source via tokens próprios
     if (data.source_account_ids?.length && data.engager_account_ids?.length) {
+      const maxPosts = data.max_posts && data.max_posts > 0 ? data.max_posts : Infinity;
       const { data: sources } = await context.supabase
         .from("twitter_accounts")
         .select("id, username, auth_tokens, proxy_id")
@@ -88,7 +94,9 @@ export const runMassEngage = createServerFn({ method: "POST" })
         "@/lib/twitter-client.server"
       );
 
-      for (const src of sources ?? []) {
+      // Teto de posts (cada source = 1 último tweet = 1 post).
+      const limitedSources = (sources ?? []).slice(0, maxPosts);
+      for (const src of limitedSources) {
         const tokens = src.auth_tokens as any;
         if (!tokens?.ct0 || !tokens?.auth_token) continue;
         try {
@@ -151,7 +159,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
 
     // 4) Agendamento humanizado: por conta, acumula delays randômicos entre minMin e maxMin
     const perAccountOffset = new Map<string, number>();
-    const rows: any[] = [];
+    const rows: Array<{ row: any; offset: number }> = [];
     const baseTime = Date.now();
     const shuffled = shuffle(targets);
 
@@ -163,35 +171,55 @@ export const runMassEngage = createServerFn({ method: "POST" })
         perAccountOffset.set(t.account_id, next);
         const isComment = act === "comment";
         rows.push({
-          user_id: context.userId,
-          flow_id: flow.id,
-          twitter_account_id: t.account_id,
-          action_type: isComment ? "action.comment" : "action.mass_engage",
-          payload: {
-            config: isComment
-              ? {
-                  target_mode: "by_id",
-                  tweet_id: t.tweet_id,
-                  text: commentText,
-                  source: t.label,
-                }
-              : {
-                  action_type: act,
-                  target_mode: "by_id",
-                  tweet_id: t.tweet_id,
-                  source: t.label,
-                },
+          offset: next,
+          row: {
+            user_id: context.userId,
+            flow_id: flow.id,
+            twitter_account_id: t.account_id,
+            action_type: isComment ? "action.comment" : "action.mass_engage",
+            payload: {
+              config: isComment
+                ? {
+                    target_mode: "by_id",
+                    tweet_id: t.tweet_id,
+                    text: commentText,
+                    source: t.label,
+                  }
+                : {
+                    action_type: act,
+                    target_mode: "by_id",
+                    tweet_id: t.tweet_id,
+                    source: t.label,
+                  },
+            },
+            status: "pending",
           },
-          scheduled_for: new Date(baseTime + next).toISOString(),
-          status: "pending",
         });
       }
     }
 
+    // 4b) Distribuição mínima obrigatória (ex.: 2h): se o lote terminaria antes,
+    // estica TODOS os offsets proporcionalmente — mantém o ritmo humanizado,
+    // só espalha por mais tempo para diluir os RTs e reduzir risco de bloqueio.
+    const minTotalMs = instant ? 0 : Math.max(0, Number(data.min_total_minutes) || 0) * 60_000;
+    if (minTotalMs > 0 && rows.length) {
+      const maxOffset = Math.max(...rows.map((r) => r.offset));
+      if (maxOffset > 0 && maxOffset < minTotalMs) {
+        const factor = minTotalMs / maxOffset;
+        for (const r of rows) r.offset *= factor;
+      }
+    }
+
+    // 4c) Finaliza scheduled_for a partir do offset (já esticado se preciso).
+    const finalRows = rows.map((r) => ({
+      ...r.row,
+      scheduled_for: new Date(baseTime + r.offset).toISOString(),
+    }));
+
     // Insert em lotes para evitar payload gigante
     const CHUNK = 500;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const slice = rows.slice(i, i + CHUNK);
+    for (let i = 0; i < finalRows.length; i += CHUNK) {
+      const slice = finalRows.slice(i, i + CHUNK);
       const { error: insErr } = await context.supabase.from("execution_queue").insert(slice);
       if (insErr) throw new Error(`Falha ao enfileirar (${i}): ${insErr.message}`);
     }
@@ -200,7 +228,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
       user_id: context.userId,
       flow_id: flow.id,
       level: "info",
-      message: `Mass RT & Like disparado${instant ? " (instantâneo)" : ""}: ${rows.length} tarefa(s) em ${perAccountOffset.size} conta(s)${lockedSkipped ? ` · ${lockedSkipped} em aquecimento` : ""}${cooldownSkipped ? ` · ${cooldownSkipped} em refresh (cooldown)` : ""}`,
+      message: `Mass RT & Like disparado${instant ? " (instantâneo)" : ""}: ${finalRows.length} tarefa(s) em ${perAccountOffset.size} conta(s)${lockedSkipped ? ` · ${lockedSkipped} em aquecimento` : ""}${cooldownSkipped ? ` · ${cooldownSkipped} em refresh (cooldown)` : ""}`,
     });
 
     // Instantâneo: aciona o worker na hora pra processar já (cron pega o resto em <=1min).
@@ -224,7 +252,7 @@ export const runMassEngage = createServerFn({ method: "POST" })
 
     return {
       flow_id: flow.id,
-      tasks: rows.length,
+      tasks: finalRows.length,
       accounts: perAccountOffset.size,
       targets: targets.length,
       locked_skipped: lockedSkipped,

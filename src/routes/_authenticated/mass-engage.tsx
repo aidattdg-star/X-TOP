@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle,
-  Zap, Timer, Rabbit, Footprints, Turtle, Moon, Gauge,
+  Zap, Timer, Rabbit, Footprints, Turtle, Moon, Gauge, FolderInput, FolderTree,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,12 @@ export const Route = createFileRoute("/_authenticated/mass-engage")({
   component: MassEnagePage,
 });
 
-type Account = { id: string; username: string; status: string | null; cooldown_until?: string | null };
+type Account = { id: string; username: string; status: string | null; cooldown_until?: string | null; folder_id?: string | null };
+type Folder = { id: string; name: string };
 type Block = { id: string; tweet_url: string; account_ids: string[] };
+
+const MAX_POSTS = 5; // teto de posts engajados no modo por pasta
+const MIN_TOTAL_MINUTES = 120; // distribuição humanizada obrigatória ≥ 2h
 
 // Presets de ritmo (rápido/lento/etc) — mesmo conceito do "Postar tweet".
 type SpeedKey = "instant" | "fast" | "human" | "slow" | "veryslow" | "custom";
@@ -49,10 +53,18 @@ function MassEnagePage() {
       await supabase.auth.getSession();
       const { data, error } = await supabase
         .from("twitter_accounts")
-        .select("id, username, status, cooldown_until")
+        .select("id, username, status, cooldown_until, folder_id")
         .order("username");
       if (error) throw error;
       return (data ?? []) as Account[];
+    },
+  });
+
+  const { data: folders = [] } = useQuery({
+    queryKey: ["account_folders"],
+    queryFn: async () => {
+      const { data } = await supabase.from("account_folders").select("id, name").order("name");
+      return (data ?? []) as Folder[];
     },
   });
 
@@ -81,6 +93,10 @@ function MassEnagePage() {
   const [crossEngage, setCrossEngage] = useState(false);
   const [sourceIds, setSourceIds] = useState<string[]>([]);
   const [engagerIds, setEngagerIds] = useState<string[]>([]);
+  // Engajamento por pasta
+  const [folderEngage, setFolderEngage] = useState(false);
+  const [engagerFolderIds, setEngagerFolderIds] = useState<string[]>([]);
+  const [sourceFolderIds, setSourceFolderIds] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
@@ -108,16 +124,54 @@ function MassEnagePage() {
   function toggleAcc(list: string[], id: string) {
     return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
   }
+  function toggleFolder(list: string[], id: string, set: (v: string[]) => void) {
+    set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  }
+
+  // Contas que vão DAR RT/like (engajadoras), a partir das pastas escolhidas.
+  const folderEngagers = useMemo(
+    () => activeAccounts.filter((a) => a.folder_id && engagerFolderIds.includes(a.folder_id)),
+    [activeAccounts, engagerFolderIds],
+  );
+  // Contas cujos posts VÃO RECEBER os RTs (fonte). Cap de 5 posts.
+  const folderSourcesAll = useMemo(
+    () => accounts.filter((a) => a.status !== "banned" && a.folder_id && sourceFolderIds.includes(a.folder_id)),
+    [accounts, sourceFolderIds],
+  );
+  const folderSources = folderSourcesAll.slice(0, MAX_POSTS);
+  const countInFolder = (fid: string) => activeAccounts.filter((a) => a.folder_id === fid).length;
 
   async function handleRun() {
     const cleanBlocks = blocks
       .map((b) => ({ tweet_url: b.tweet_url.trim(), account_ids: b.account_ids }))
       .filter((b) => b.tweet_url && b.account_ids.length);
 
-    if (!cleanBlocks.length && !(crossEngage && sourceIds.length && engagerIds.length)) {
-      toast.error("Adicione ao menos um bloco com URL+contas ou ative engajamento entre contas.");
+    // Fontes/engajadores finais = seleção manual (cross) + por pasta.
+    const finalSources = [
+      ...new Set([
+        ...(crossEngage ? sourceIds : []),
+        ...(folderEngage ? folderSources.map((a) => a.id) : []),
+      ]),
+    ].slice(0, MAX_POSTS); // teto de 5 posts
+    const finalEngagers = [
+      ...new Set([
+        ...(crossEngage ? engagerIds : []),
+        ...(folderEngage ? folderEngagers.map((a) => a.id) : []),
+      ]),
+    ];
+    const hasCross = finalSources.length > 0 && finalEngagers.length > 0;
+
+    if (folderEngage && !hasCross) {
+      toast.error("No modo por pasta, escolha pasta(s) que dão RT e pasta(s) que vão receber.");
       return;
     }
+    if (!cleanBlocks.length && !hasCross) {
+      toast.error("Adicione um bloco com URL+contas, ative engajamento entre contas ou por pasta.");
+      return;
+    }
+    // No modo por pasta o ritmo humanizado de ≥2h é obrigatório (sem instantâneo).
+    const useInstant = folderEngage ? false : instant;
+    const minTotal = folderEngage ? MIN_TOTAL_MINUTES : 0;
     const actions: Array<"like" | "retweet" | "comment"> = [];
     if (doLike) actions.push("like");
     if (doRetweet) actions.push("retweet");
@@ -140,22 +194,26 @@ function MassEnagePage() {
       const res = await run({
         data: {
           blocks: cleanBlocks,
-          source_account_ids: crossEngage ? sourceIds : [],
-          engager_account_ids: crossEngage ? engagerIds : [],
+          source_account_ids: finalSources,
+          engager_account_ids: finalEngagers,
           actions,
           comment_text: commentText,
-          instant,
+          instant: useInstant,
           min_minutes: minMin,
           max_minutes: maxMin,
+          max_posts: MAX_POSTS,
+          min_total_minutes: minTotal,
         },
       });
       setProgress(100);
-      const word = instant ? "executando agora" : "agendada(s)";
+      const word = useInstant ? "executando agora" : "agendada(s)";
       setProgressLabel(`${res.tasks} tarefa(s) ${word} em ${res.accounts} conta(s)`);
       toast.success(
-        instant
+        useInstant
           ? `Disparo instantâneo! ${res.tasks} ação(ões) sendo executada(s) agora em ${res.accounts} conta(s).`
-          : `Disparado! ${res.tasks} tarefa(s) agendada(s) em ${res.accounts} conta(s).`,
+          : folderEngage
+            ? `Disparado! ${res.tasks} tarefa(s) distribuída(s) ao longo de ≥2h em ${res.accounts} conta(s).`
+            : `Disparado! ${res.tasks} tarefa(s) agendada(s) em ${res.accounts} conta(s).`,
       );
     } catch (e: any) {
       toast.error(e?.message ?? "Falha ao disparar");
@@ -439,6 +497,83 @@ function MassEnagePage() {
           )}
         </Section>
 
+        {/* Engajamento por pasta */}
+        <Section icon={FolderTree} title="Engajamento por pasta (RT cruzado)">
+          <label className="flex items-center gap-2 cursor-pointer w-fit">
+            <Checkbox checked={folderEngage} onCheckedChange={(v) => setFolderEngage(!!v)} />
+            <span className="text-sm text-foreground">Ativar engajamento por pasta</span>
+          </label>
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+            Escolha as pastas das contas que <b className="text-foreground">dão RT/like</b> e as pastas
+            cujos <b className="text-foreground">posts vão receber</b> os RTs (no máximo <b className="text-foreground">{MAX_POSTS} posts</b>).
+            A distribuição é humanizada e dura <b className="text-foreground">no mínimo 2h</b> para diluir os RTs.
+          </p>
+
+          {folderEngage && (
+            <>
+              <div className="grid md:grid-cols-2 gap-4 mt-4">
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <FolderInput className="h-3.5 w-3.5 text-brand" />
+                    <Label className="text-xs text-foreground">Pastas que vão DAR RT/like</Label>
+                  </div>
+                  {folders.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">Nenhuma pasta — crie em Contas &amp; Proxies.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {folders.map((f) => (
+                        <FolderChip
+                          key={f.id}
+                          label={f.name}
+                          count={countInFolder(f.id)}
+                          active={engagerFolderIds.includes(f.id)}
+                          onClick={() => toggleFolder(engagerFolderIds, f.id, setEngagerFolderIds)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    <b className="text-foreground tabular-nums">{folderEngagers.length}</b> conta(s) engajadora(s) disponível(is).
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <Repeat2 className="h-3.5 w-3.5 text-brand" />
+                    <Label className="text-xs text-foreground">Pastas que vão RECEBER os RTs</Label>
+                  </div>
+                  {folders.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">Nenhuma pasta — crie em Contas &amp; Proxies.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {folders.map((f) => (
+                        <FolderChip
+                          key={f.id}
+                          label={f.name}
+                          count={countInFolder(f.id)}
+                          active={sourceFolderIds.includes(f.id)}
+                          onClick={() => toggleFolder(sourceFolderIds, f.id, setSourceFolderIds)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    <b className="text-foreground tabular-nums">{folderSources.length}</b>/{MAX_POSTS} posts
+                    {folderSourcesAll.length > MAX_POSTS && (
+                      <span className="text-amber-400"> · limitado a {MAX_POSTS} (de {folderSourcesAll.length} contas)</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-brand/20 bg-brand/[0.06] px-3 py-2 text-[11px] text-muted-foreground">
+                <Timer className="h-3.5 w-3.5 text-brand shrink-0" />
+                Ritmo humanizado obrigatório — os RTs são espalhados automaticamente por <b className="text-foreground">no mínimo 2h</b> (sem modo instantâneo).
+              </div>
+            </>
+          )}
+        </Section>
+
         {running && (
           <div className="liquid-glass rounded-2xl p-4 space-y-2">
             <p className="relative text-sm text-foreground">{progressLabel}</p>
@@ -486,6 +621,31 @@ function Section({
       </div>
       <div className="relative">{children}</div>
     </div>
+  );
+}
+
+function FolderChip({
+  label, count, active, onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+        active
+          ? "gradient-brand text-white border-transparent"
+          : "border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20",
+      )}
+    >
+      {label}
+      <span className={cn("tabular-nums", active ? "text-white/80" : "opacity-70")}>{count}</span>
+    </button>
   );
 }
 
