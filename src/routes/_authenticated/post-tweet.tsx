@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign } from "@/lib/account-profile.functions";
 import { registerMediaFile } from "@/lib/media.functions";
-import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload } from "lucide-react";
+import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload, Reply } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
   component: PostTweetPage,
@@ -32,6 +32,11 @@ function PostTweetPage() {
   const [uploading, setUploading] = useState(false);
 
   const [ritmo, setRitmo] = useState<"now" | "human" | "campaign">("now");
+  // Auto-reply: a própria conta responde o tweet recém-postado após um tempo.
+  const [replyOn, setReplyOn] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [replyMin, setReplyMin] = useState(1);
+  const [replyMax, setReplyMax] = useState(1);
   const [minMin, setMinMin] = useState(2);
   const [maxMin, setMaxMin] = useState(10);
   const [days, setDays] = useState(3);
@@ -234,6 +239,19 @@ function PostTweetPage() {
     }
 
     // MODO IMEDIATO: posta agora, conta por conta, com log do resultado
+    if (replyOn && !replyText.trim()) {
+      setBusy(false);
+      return toast.error("Escreva o texto da resposta (auto-reply) ou desative a opção.");
+    }
+    const replyPayload =
+      replyOn && replyText.trim()
+        ? {
+            text: replyText.trim(),
+            minSeconds: Math.round(Math.max(0.1, replyMin) * 60),
+            maxSeconds: Math.round(Math.max(replyMin, replyMax) * 60),
+          }
+        : undefined;
+
     setProgress({ done: 0, total: selected.length, ok: 0 });
     let ok = 0;
     const acc = new Map(accounts.map((a) => [a.id, a.username]));
@@ -241,7 +259,9 @@ function PostTweetPage() {
     try {
       for (let i = 0; i < selected.length; i++) {
         try {
-          const res = await runPost({ data: { accountIds: [selected[i]], ...common } });
+          const res = await runPost({
+            data: { accountIds: [selected[i]], ...common, ...(replyPayload ? { reply: replyPayload } : {}) },
+          });
           const r = res.results[0];
           collected.push({ username: acc.get(selected[i]), ok: !!r?.ok, url: r?.url, error: r?.error });
           if (r?.ok) ok++;
@@ -254,6 +274,11 @@ function PostTweetPage() {
       const fails = collected.length - ok;
       if (fails === 0) toast.success(`Postado em ${ok} conta(s) ✓`);
       else toast.warning(`${ok} ok / ${fails} falha(s) — veja o log abaixo`);
+      if (replyPayload && ok > 0) {
+        const win =
+          replyMin === replyMax ? `~${replyMin} min` : `${replyMin}–${Math.max(replyMin, replyMax)} min`;
+        toast.info(`Auto-reply agendado em ${ok} conta(s) — cada uma responde o próprio tweet em ${win}.`);
+      }
     } finally {
       setBusy(false);
     }
@@ -521,6 +546,67 @@ function PostTweetPage() {
                   )}
                 </span>
               </p>
+            </div>
+          )}
+        </div>
+
+        {/* Auto-reply */}
+        <div className="liquid-glass rounded-2xl p-5 space-y-3">
+          <div className="relative flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/[0.06] border border-white/10 text-brand">
+                <Reply className="h-3.5 w-3.5" />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-foreground">Auto-responder o próprio tweet</p>
+                <p className="text-[11px] text-muted-foreground">A conta responde o tweet que acabou de postar, sozinha.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyOn((v) => !v)}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors shrink-0",
+                replyOn ? "bg-brand" : "bg-white/15",
+              )}
+            >
+              <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", replyOn ? "left-[22px]" : "left-0.5")} />
+            </button>
+          </div>
+
+          {replyOn && (
+            <div className="relative space-y-3">
+              <textarea
+                rows={2}
+                value={replyText}
+                maxLength={280}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="O que a conta vai responder no próprio tweet… (suporta {a|b} e ||| pra variar)"
+                className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors resize-none"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Responder depois de</span>
+                <input
+                  type="number" min={0.2} step={0.5} value={replyMin}
+                  onChange={(e) => setReplyMin(Math.max(0.2, Number(e.target.value) || 1))}
+                  className="h-9 w-16 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40"
+                />
+                <span className="text-xs text-muted-foreground">a</span>
+                <input
+                  type="number" min={0.2} step={0.5} value={replyMax}
+                  onChange={(e) => setReplyMax(Math.max(0.2, Number(e.target.value) || 1))}
+                  className="h-9 w-16 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40"
+                />
+                <span className="text-xs text-muted-foreground">minuto(s)</span>
+                <span className="text-[11px] text-muted-foreground ml-1">
+                  {replyMin === replyMax ? `(fixo ~${replyMin} min)` : "(aleatório no intervalo)"}
+                </span>
+              </div>
+              {ritmo !== "now" && (
+                <p className="text-[11px] text-amber-400">
+                  ⚠ O auto-reply só funciona no modo <b>Postar agora</b> (precisa do tweet publicado na hora).
+                </p>
+              )}
             </div>
           )}
         </div>

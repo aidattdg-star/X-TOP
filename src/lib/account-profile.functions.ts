@@ -338,6 +338,7 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     mode?: "same" | "random";
     mediaFileId?: string;
     folderId?: string;
+    reply?: { text: string; minSeconds: number; maxSeconds: number };
   }) =>
     z.object({
       accountIds: z.array(z.string().uuid()).min(1).max(200),
@@ -345,6 +346,12 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
       mode: z.enum(["same", "random"]).optional(),
       mediaFileId: z.string().uuid().optional(),
       folderId: z.string().uuid().optional(),
+      // Auto-reply: a própria conta responde o tweet recém-postado após um tempo.
+      reply: z.object({
+        text: z.string().trim().min(1).max(280),
+        minSeconds: z.number().min(10).max(86400),
+        maxSeconds: z.number().min(10).max(86400),
+      }).optional(),
     }).parse(input),
   )
   .handler(async ({ data, context }) => {
@@ -363,6 +370,7 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     const { uploadTweetMedia, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
 
     const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
+    const posted: Array<{ accountId: string; restId: string }> = [];
     for (const accountId of data.accountIds) {
       try {
         const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
@@ -389,11 +397,64 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
         const r = await postTweet(tokens, text, dispatcher, mediaIds);
         await persistRefreshed(context.supabase, accountId, tokens);
         results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
+        if (r.rest_id) posted.push({ accountId, restId: r.rest_id });
       } catch (e) {
         results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
       }
     }
-    return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
+
+    // Auto-reply: agenda a própria conta para responder o tweet recém-postado
+    // após um tempo (fixo ou aleatório). O worker (run-queue) publica o reply.
+    let repliesScheduled = 0;
+    if (data.reply && posted.length) {
+      try {
+        const replyText = data.reply.text.trim();
+        const minS = Math.max(10, data.reply.minSeconds);
+        const maxS = Math.max(minS, data.reply.maxSeconds);
+        const { data: flow } = await context.supabase
+          .from("automation_flows")
+          .insert({
+            user_id: context.userId,
+            name: `Auto-reply — ${new Date().toLocaleString("pt-BR")}`,
+            description: `${posted.length} resposta(s) agendada(s)`,
+            status: "draft",
+            react_flow_data: { nodes: [], edges: [] } as any,
+            account_ids: [],
+          })
+          .select("id")
+          .single();
+        if (flow) {
+          const base = Date.now();
+          const rows = posted.map((p) => {
+            const delayMs = (minS + Math.random() * (maxS - minS)) * 1000;
+            return {
+              user_id: context.userId,
+              flow_id: flow.id,
+              twitter_account_id: p.accountId,
+              action_type: "action.comment",
+              payload: {
+                config: { target_mode: "by_id", tweet_id: p.restId, text: replyText, source: "auto-reply" },
+              },
+              scheduled_for: new Date(base + delayMs).toISOString(),
+              status: "pending",
+            };
+          });
+          for (let i = 0; i < rows.length; i += 500) {
+            await context.supabase.from("execution_queue").insert(rows.slice(i, i + 500) as never);
+          }
+          repliesScheduled = rows.length;
+        }
+      } catch {
+        /* auto-reply é best-effort: o post principal já foi feito */
+      }
+    }
+
+    return {
+      results,
+      ok_count: results.filter((r) => r.ok).length,
+      total: data.accountIds.length,
+      replies_scheduled: repliesScheduled,
+    };
   });
 
 /** Agenda os posts com intervalo humano aleatório (min–max min) na fila; o worker
