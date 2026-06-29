@@ -83,6 +83,11 @@ function LogsPage() {
 
   const stats = statsQuery.data ?? { pending: 0, processing: 0, completed: 0, failed: 0 };
 
+  // Ações que deram certo (tweet/RT/like/comentário publicado).
+  const successLogs = (logsQuery.data ?? []).filter(
+    (l: any) => l.level === "info" && /^(💬|🔁|❤️)|publicado/.test(l.message ?? ""),
+  );
+
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <div className="flex items-start justify-between">
@@ -115,11 +120,32 @@ function LogsPage() {
         <StatCard label="Failed" value={stats.failed} icon={XCircle} tone="danger" />
       </div>
 
-      <Tabs defaultValue="queue" className="mt-8">
+      <Tabs defaultValue="success" className="mt-8">
         <TabsList>
+          <TabsTrigger value="success">✓ Sucessos ({successLogs.length})</TabsTrigger>
           <TabsTrigger value="queue">Fila ({queueQuery.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="logs">Eventos ({logsQuery.data?.length ?? 0})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="success" className="mt-4">
+          <div className="border border-emerald-500/15 bg-emerald-500/[0.03] rounded-lg overflow-hidden">
+            {successLogs.length === 0 ? (
+              <EmptyHint title="Nenhuma ação concluída ainda" hint="Quando uma conta postar, retweetar, curtir ou comentar com sucesso, aparece aqui com o link pra ver no X." />
+            ) : (
+              <div className="divide-y divide-border max-h-[60vh] overflow-auto">
+                {successLogs.map((l: any) => (
+                  <div key={l.id} className="px-4 py-2.5 flex items-start gap-3 text-xs">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                    <span className="text-muted-foreground whitespace-nowrap font-mono">
+                      {new Date(l.created_at).toLocaleString("pt-BR", { hour12: false })}
+                    </span>
+                    <span className="flex-1 text-foreground/90 break-words"><LinkifiedMsg text={l.message} /></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </TabsContent>
 
         <TabsContent value="queue" className="mt-4">
           <div className="flex justify-end mb-2">
@@ -257,6 +283,23 @@ function LevelBadge({ level }: { level: string }) {
     error: "destructive",
   };
   return <Badge variant={variant[level] ?? "outline"} className="font-normal text-[10px] uppercase tracking-wider">{level}</Badge>;
+}
+
+function LinkifiedMsg({ text }: { text: string }) {
+  const parts = (text ?? "").split(/(https?:\/\/\S+)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        /^https?:\/\//.test(p) ? (
+          <a key={i} href={p} target="_blank" rel="noreferrer" className="text-brand hover:underline break-all">
+            {p}
+          </a>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  );
 }
 
 function EmptyHint({ title, hint }: { title: string; hint: string }) {
