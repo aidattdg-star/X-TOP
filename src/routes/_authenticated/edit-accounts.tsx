@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw, Search, Check, UserCog } from "lucide-react";
+import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw, Search, Check, UserCog, FolderInput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -69,6 +69,48 @@ function EditAccountsPage() {
     },
   });
 
+  // Pastas de CONTA (as mesmas de Contas & Proxies / Postar tweet)
+  const { data: acctFolders } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["account_folders"],
+    queryFn: async () => {
+      const { data } = await supabase.from("account_folders").select("id, name").order("name");
+      return data ?? [];
+    },
+  });
+
+  // Move as contas selecionadas para uma pasta (ou cria uma nova e move).
+  async function moveSelectedToFolder(folderId: string | null) {
+    const list = Array.from(selected);
+    if (!list.length) return toast.error("Selecione contas primeiro.");
+    const { error } = await supabase.from("twitter_accounts").update({ folder_id: folderId }).in("id", list);
+    if (error) return toast.error(error.message);
+    const name = folderId ? acctFolders?.find((f) => f.id === folderId)?.name ?? "pasta" : "Sem pasta";
+    toast.success(`${list.length} conta(s) movida(s) para "${name}"`);
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
+
+  async function createFolderAndMove() {
+    if (!selected.size) return toast.error("Selecione contas primeiro.");
+    const name = prompt("Nome da nova pasta:")?.trim();
+    if (!name) return;
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return toast.error("Não autenticado");
+    // cria (ou reaproveita se já existir o nome)
+    let folderId: string | null = null;
+    const { data: created, error } = await supabase
+      .from("account_folders").insert({ user_id: u.user.id, name }).select("id").single();
+    if (error || !created) {
+      const { data: existing } = await supabase
+        .from("account_folders").select("id").eq("user_id", u.user.id).eq("name", name).maybeSingle();
+      folderId = existing?.id ?? null;
+      if (!folderId) return toast.error(error?.message ?? "Falha ao criar pasta");
+    } else {
+      folderId = created.id;
+    }
+    qc.invalidateQueries({ queryKey: ["account_folders"] });
+    await moveSelectedToFolder(folderId);
+  }
+
   const filtered = useMemo(() => {
     if (!accounts) return [];
     const f = filter.trim().toLowerCase();
@@ -128,14 +170,39 @@ function EditAccountsPage() {
                 className="w-full h-9 pl-9 pr-3 bg-white/[0.04] border border-white/10 rounded-lg text-xs outline-none focus:border-brand/40 transition-colors placeholder:text-muted-foreground"
               />
             </div>
-            <button
-              onClick={toggleAll}
-              className="text-[11px] font-medium text-brand hover:underline"
-            >
-              {filtered.length && filtered.every((a) => selected.has(a.id))
-                ? "Limpar seleção visível"
-                : "Selecionar todas visíveis"}
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={toggleAll}
+                className="text-[11px] font-medium text-brand hover:underline"
+              >
+                {filtered.length && filtered.every((a) => selected.has(a.id))
+                  ? "Limpar seleção visível"
+                  : "Selecionar todas visíveis"}
+              </button>
+            </div>
+            {selected.size > 0 && (
+              <div className="flex items-center gap-1.5">
+                <FolderInput className="h-3.5 w-3.5 text-brand shrink-0" />
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    if (v === "__new__") createFolderAndMove();
+                    else if (v === "__none__") moveSelectedToFolder(null);
+                    else moveSelectedToFolder(v);
+                  }}
+                  className="flex-1 h-8 px-2 bg-white/[0.04] border border-white/10 rounded-lg text-[11px] outline-none focus:border-brand/40"
+                >
+                  <option value="">Mover {selected.size} para pasta…</option>
+                  <option value="__new__">＋ Nova pasta…</option>
+                  {(acctFolders ?? []).map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                  <option value="__none__">Sem pasta (tirar da pasta)</option>
+                </select>
+              </div>
+            )}
           </div>
           <div className="relative flex-1 overflow-y-auto p-2 space-y-0.5">
             {filtered.map((a) => {
