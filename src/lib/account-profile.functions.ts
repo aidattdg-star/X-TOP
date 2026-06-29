@@ -457,6 +457,71 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     };
   });
 
+// ============================================================================
+// RESPONDER UM TWEET JÁ EXISTENTE (sem postar nada novo, sem mídia)
+// Cada conta responde: um link específico, OU o próprio último tweet.
+// ============================================================================
+export const replyToTweetAccounts = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: {
+    accountIds: string[];
+    text: string;
+    targetUrl?: string;
+    ownLatest?: boolean;
+  }) =>
+    z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(200),
+      text: z.string().trim().min(1).max(280),
+      targetUrl: z.string().optional(),
+      ownLatest: z.boolean().optional(),
+    })
+      .refine((v) => v.ownLatest || (!!v.targetUrl && /status\/\d+/.test(v.targetUrl)), {
+        message: "Cole o link do tweet a responder ou ative 'último tweet da própria conta'.",
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const text = data.text.trim();
+    const urlId = data.targetUrl?.match(/status\/(\d+)/)?.[1];
+
+    const { commentReply, getUserIdByScreenName, getUserRecentTweets, buildDispatcher } = await import(
+      "@/lib/twitter-client.server"
+    );
+
+    const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
+    for (const accountId of data.accountIds) {
+      try {
+        const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
+
+        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
+        const { data: pa } = await context.supabase
+          .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+        if (pa?.proxy_id) {
+          const { data: p } = await context.supabase
+            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
+          proxy = p as any;
+        }
+        const dispatcher = buildDispatcher(proxy);
+
+        let tweetId = urlId;
+        if (data.ownLatest) {
+          const uid = await getUserIdByScreenName(tokens, acc.username, dispatcher);
+          const tweets = await getUserRecentTweets(tokens, uid, 5, dispatcher);
+          tweetId = tweets[0]?.id;
+          if (!tweetId) throw new Error("Sem tweet recente para responder.");
+        }
+        if (!tweetId) throw new Error("Tweet alvo não encontrado.");
+
+        const r = await commentReply(tokens, tweetId, text, dispatcher);
+        await persistRefreshed(context.supabase, accountId, tokens);
+        results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
+      } catch (e) {
+        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
+  });
+
 /** Agenda os posts com intervalo humano aleatório (min–max min) na fila; o worker
  *  publica em background, espaçado, pra não dar burst/ban. */
 export const schedulePostTweet = createServerFn({ method: "POST" })

@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign } from "@/lib/account-profile.functions";
+import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign, replyToTweetAccounts } from "@/lib/account-profile.functions";
 import { registerMediaFile } from "@/lib/media.functions";
 import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload, Reply } from "lucide-react";
 
@@ -27,16 +27,20 @@ function PostTweetPage() {
   const runPost = useServerFn(postTweetToAccounts);
   const runSchedule = useServerFn(schedulePostTweet);
   const runCampaign = useServerFn(scheduleImageCampaign);
+  const runReply = useServerFn(replyToTweetAccounts);
   const registerFn = useServerFn(registerMediaFile);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  const [ritmo, setRitmo] = useState<"now" | "human" | "campaign">("now");
+  const [ritmo, setRitmo] = useState<"now" | "human" | "campaign" | "reply">("now");
   // Auto-reply: a própria conta responde o tweet recém-postado após um tempo.
   const [replyOn, setReplyOn] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replyMin, setReplyMin] = useState(1);
   const [replyMax, setReplyMax] = useState(1);
+  // Modo "Responder tweet" (existente): URL alvo ou último tweet da própria conta.
+  const [replyTargetUrl, setReplyTargetUrl] = useState("");
+  const [replyOwnLatest, setReplyOwnLatest] = useState(false);
   const [minMin, setMinMin] = useState(2);
   const [maxMin, setMaxMin] = useState(10);
   const [days, setDays] = useState(3);
@@ -182,6 +186,49 @@ function PostTweetPage() {
 
   async function dispatch() {
     if (!selected.length) return toast.error("Selecione ao menos uma conta.");
+
+    // MODO RESPONDER TWEET (existente) — sem postar nada novo, sem mídia.
+    if (ritmo === "reply") {
+      if (!text.trim()) return toast.error("Escreva a resposta.");
+      if (!replyOwnLatest && !/status\/\d+/.test(replyTargetUrl)) {
+        return toast.error("Cole o link do tweet a responder ou ative 'último tweet da própria conta'.");
+      }
+      setBusy(true);
+      setResults([]);
+      setScheduledMsg(null);
+      setProgress({ done: 0, total: selected.length, ok: 0 });
+      let okR = 0;
+      const accR = new Map(accounts.map((a) => [a.id, a.username]));
+      const got: PostResult[] = [];
+      try {
+        for (let i = 0; i < selected.length; i++) {
+          try {
+            const res = await runReply({
+              data: {
+                accountIds: [selected[i]],
+                text: text.trim(),
+                targetUrl: replyOwnLatest ? undefined : replyTargetUrl.trim(),
+                ownLatest: replyOwnLatest,
+              },
+            });
+            const r = res.results[0];
+            got.push({ username: accR.get(selected[i]), ok: !!r?.ok, url: r?.url, error: r?.error });
+            if (r?.ok) okR++;
+          } catch (e) {
+            got.push({ username: accR.get(selected[i]), ok: false, error: e instanceof Error ? e.message : "falha" });
+          }
+          setResults([...got]);
+          setProgress({ done: i + 1, total: selected.length, ok: okR });
+        }
+        const failR = got.length - okR;
+        if (failR === 0) toast.success(`Respondido em ${okR} conta(s) ✓`);
+        else toast.warning(`${okR} ok / ${failR} falha(s) — veja o log abaixo`);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (!text.trim() && mediaMode === "none") return toast.error("Escreva o texto ou escolha uma mídia.");
     if (mediaMode !== "none" && !mediaFolderId) return toast.error("Escolha a pasta de mídia.");
     if (mediaMode !== "none" && mediaFolderCount === 0) return toast.error("Pasta de mídia vazia — envie imagens primeiro.");
@@ -295,19 +342,22 @@ function PostTweetPage() {
       <div className="mt-8 space-y-4">
         {/* Texto */}
         <div className="liquid-glass rounded-2xl p-5">
-          <p className="relative text-xs uppercase tracking-wider text-muted-foreground mb-2">Tweet / legenda</p>
+          <p className="relative text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            {ritmo === "reply" ? "Resposta (reply)" : "Tweet / legenda"}
+          </p>
           <textarea
             rows={4}
             value={text}
             maxLength={280}
             onChange={(e) => setText(e.target.value)}
-            placeholder="O que está acontecendo? Variações com {a|b} e ||| pra evitar duplicidade."
+            placeholder={ritmo === "reply" ? "O que a conta vai responder no tweet…" : "O que está acontecendo? Variações com {a|b} e ||| pra evitar duplicidade."}
             className="relative w-full px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors resize-none"
           />
           <p className="relative mt-1 text-[10px] text-muted-foreground">{text.length}/280</p>
         </div>
 
         {/* Mídia */}
+        {ritmo !== "reply" && (
         <div className="liquid-glass rounded-2xl p-5 space-y-3">
           <div className="relative flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/[0.06] border border-white/10 text-brand">
@@ -403,6 +453,7 @@ function PostTweetPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Contas */}
         <div className="liquid-glass rounded-2xl p-5 space-y-3">
@@ -485,6 +536,7 @@ function PostTweetPage() {
               { k: "now", label: "Postar agora" },
               { k: "human", label: "Humanizado (intervalo)" },
               { k: "campaign", label: "Campanha (imagens em dias)" },
+              { k: "reply", label: "Responder tweet" },
             ] as const).map((o) => (
               <button
                 key={o.k}
@@ -548,9 +600,42 @@ function PostTweetPage() {
               </p>
             </div>
           )}
+
+          {ritmo === "reply" && (
+            <div className="relative space-y-3">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Responde um tweet <b className="text-foreground">já existente</b> com as contas selecionadas — sem postar nada novo e <b className="text-foreground">sem mídia</b>.
+                Use o campo de texto acima como a <b className="text-foreground">resposta</b>.
+              </p>
+              <label className="flex items-center gap-2 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  checked={replyOwnLatest}
+                  onChange={(e) => setReplyOwnLatest(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[var(--brand)]"
+                />
+                <span className="text-xs text-foreground">Responder o <b>último tweet</b> de cada conta (esqueci o auto-reply)</span>
+              </label>
+              {!replyOwnLatest && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Link do tweet a responder</p>
+                  <input
+                    value={replyTargetUrl}
+                    onChange={(e) => setReplyTargetUrl(e.target.value)}
+                    placeholder="https://x.com/usuario/status/123..."
+                    className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Todas as contas selecionadas respondem este mesmo tweet.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Auto-reply */}
+        {/* Auto-reply (só no fluxo de postar) */}
+        {ritmo !== "reply" && (
         <div className="liquid-glass rounded-2xl p-5 space-y-3">
           <div className="relative flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -610,6 +695,7 @@ function PostTweetPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Disparo */}
         <div className="flex items-center gap-3">
@@ -619,7 +705,7 @@ function PostTweetPage() {
             className="px-5 py-2.5 text-sm font-medium rounded-xl gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {ritmo === "now" ? "Postar" : "Agendar"} em {selected.length || ""} conta(s)
+            {ritmo === "reply" ? "Responder" : ritmo === "now" ? "Postar" : "Agendar"} em {selected.length || ""} conta(s)
           </button>
           {busy && ritmo === "now" && (
             <div className="flex-1 max-w-xs">
