@@ -7,8 +7,8 @@ import { PageHeader } from "@/components/page-header";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { postTweetToAccounts } from "@/lib/account-profile.functions";
-import { Send, Image as ImageIcon, Search, Check, Loader2, Users } from "lucide-react";
+import { postTweetToAccounts, schedulePostTweet } from "@/lib/account-profile.functions";
+import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
   component: PostTweetPage,
@@ -19,9 +19,17 @@ type Folder = { id: string; name: string };
 type MediaFolder = { id: string; name: string };
 type MediaFile = { id: string; storage_path: string; signed_url: string | null; original_filename: string };
 
+type PostResult = { username?: string; ok: boolean; url?: string; error?: string };
+
 function PostTweetPage() {
   const runPost = useServerFn(postTweetToAccounts);
+  const runSchedule = useServerFn(schedulePostTweet);
 
+  const [humanized, setHumanized] = useState(false);
+  const [minMin, setMinMin] = useState(2);
+  const [maxMin, setMaxMin] = useState(10);
+  const [results, setResults] = useState<PostResult[]>([]);
+  const [scheduledMsg, setScheduledMsg] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [acctFilter, setAcctFilter] = useState("");
@@ -120,30 +128,55 @@ function PostTweetPage() {
     if (mediaMode === "same" && !mediaFileId) return toast.error("Escolha a imagem.");
 
     setBusy(true);
+    setResults([]);
+    setScheduledMsg(null);
+
+    const common = {
+      text: text.trim(),
+      mode: mediaMode === "none" ? undefined : (mediaMode as "same" | "random"),
+      folderId: mediaMode !== "none" ? mediaFolderId : undefined,
+      mediaFileId: mediaMode === "same" ? mediaFileId : undefined,
+    };
+
+    // MODO HUMANIZADO: agenda na fila e o worker posta em background
+    if (humanized) {
+      try {
+        const r = await runSchedule({
+          data: { accountIds: selected, ...common, minMinutes: minMin, maxMinutes: Math.max(minMin, maxMin) },
+        });
+        setScheduledMsg(
+          `${r.tasks} post(s) agendado(s) — o robô vai publicando em background, com intervalo aleatório de ${minMin}–${Math.max(minMin, maxMin)} min entre cada. Acompanhe em Logs.`,
+        );
+        toast.success(`${r.tasks} post(s) agendado(s) (humanizado)`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Falha ao agendar");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // MODO IMEDIATO: posta agora, conta por conta, com log do resultado
     setProgress({ done: 0, total: selected.length, ok: 0 });
     let ok = 0;
-    const fails: string[] = [];
+    const acc = new Map(accounts.map((a) => [a.id, a.username]));
+    const collected: PostResult[] = [];
     try {
       for (let i = 0; i < selected.length; i++) {
         try {
-          const res = await runPost({
-            data: {
-              accountIds: [selected[i]],
-              text: text.trim(),
-              mode: mediaMode === "none" ? undefined : mediaMode,
-              folderId: mediaMode !== "none" ? mediaFolderId : undefined,
-              mediaFileId: mediaMode === "same" ? mediaFileId : undefined,
-            },
-          });
-          if (res.results[0]?.ok) ok++;
-          else fails.push(res.results[0]?.error ?? "falha");
+          const res = await runPost({ data: { accountIds: [selected[i]], ...common } });
+          const r = res.results[0];
+          collected.push({ username: acc.get(selected[i]), ok: !!r?.ok, url: r?.url, error: r?.error });
+          if (r?.ok) ok++;
         } catch (e) {
-          fails.push(e instanceof Error ? e.message : "falha");
+          collected.push({ username: acc.get(selected[i]), ok: false, error: e instanceof Error ? e.message : "falha" });
         }
+        setResults([...collected]);
         setProgress({ done: i + 1, total: selected.length, ok });
       }
-      if (fails.length === 0) toast.success(`Postado em ${ok} conta(s) ✓`);
-      else toast.warning(`${ok} ok / ${fails.length} falha(s): ${fails[0]?.slice(0, 100)}`);
+      const fails = collected.length - ok;
+      if (fails === 0) toast.success(`Postado em ${ok} conta(s) ✓`);
+      else toast.warning(`${ok} ok / ${fails} falha(s) — veja o log abaixo`);
     } finally {
       setBusy(false);
     }
@@ -316,6 +349,53 @@ function PostTweetPage() {
           </div>
         </div>
 
+        {/* Modo de envio: imediato x humanizado */}
+        <div className="liquid-glass rounded-2xl p-5 space-y-3">
+          <div className="relative flex items-center gap-2.5">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/[0.06] border border-white/10 text-brand">
+              <Dice5 className="h-3.5 w-3.5" />
+            </span>
+            <p className="text-sm font-medium text-foreground">Ritmo de envio</p>
+          </div>
+          <div className="relative flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setHumanized(false)}
+              className={cn("px-3 py-2 text-xs rounded-lg border transition-colors", !humanized ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground")}
+            >
+              Postar agora (imediato)
+            </button>
+            <button
+              type="button"
+              onClick={() => setHumanized(true)}
+              className={cn("px-3 py-2 text-xs rounded-lg border transition-colors", humanized ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground")}
+            >
+              Humanizado (intervalo aleatório)
+            </button>
+          </div>
+          {humanized && (
+            <div className="relative space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">A cada</span>
+                <input type="number" min={0.5} step={0.5} value={minMin}
+                  onChange={(e) => setMinMin(Math.max(0.5, Number(e.target.value) || 0.5))}
+                  className="h-9 w-16 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40" />
+                <span className="text-xs text-muted-foreground">a</span>
+                <input type="number" min={0.5} step={0.5} value={maxMin}
+                  onChange={(e) => setMaxMin(Math.max(0.5, Number(e.target.value) || 0.5))}
+                  className="h-9 w-16 text-center bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40" />
+                <span className="text-xs text-muted-foreground">minutos</span>
+              </div>
+              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-relaxed">
+                <Dice5 className="h-3.5 w-3.5 text-brand shrink-0 mt-0.5" />
+                <span>
+                  Cada conta posta uma vez, com um tempo <b className="text-foreground">aleatório entre {minMin} e {Math.max(minMin, maxMin)} min</b> entre uma e outra — o robô publica sozinho em background (sem burst), pra reduzir risco de bloqueio. Acompanhe em <b className="text-foreground">Logs</b>.
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Disparo */}
         <div className="flex items-center gap-3">
           <button
@@ -324,9 +404,9 @@ function PostTweetPage() {
             className="px-5 py-2.5 text-sm font-medium rounded-xl gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Postar em {selected.length || ""} conta(s)
+            {humanized ? "Agendar" : "Postar"} em {selected.length || ""} conta(s)
           </button>
-          {busy && (
+          {busy && !humanized && (
             <div className="flex-1 max-w-xs">
               <Progress value={progress.total ? Math.round((progress.done / progress.total) * 100) : 0} className="h-1.5" />
               <p className="mt-1 text-[10px] text-muted-foreground">
@@ -335,6 +415,46 @@ function PostTweetPage() {
             </div>
           )}
         </div>
+
+        {/* Agendado (humanizado) */}
+        {scheduledMsg && (
+          <div className="liquid-glass rounded-2xl p-4 flex items-start gap-2.5">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+            <p className="relative text-xs text-muted-foreground leading-relaxed">{scheduledMsg}</p>
+          </div>
+        )}
+
+        {/* Log de resultados (imediato) */}
+        {results.length > 0 && (
+          <div className="liquid-glass rounded-2xl overflow-hidden">
+            <div className="relative px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Resultado</p>
+              <p className="text-[11px] text-muted-foreground">
+                <b className="text-emerald-400">{results.filter((r) => r.ok).length} ok</b> ·{" "}
+                <b className="text-destructive">{results.filter((r) => !r.ok).length} falha(s)</b>
+              </p>
+            </div>
+            <div className="relative max-h-72 overflow-auto divide-y divide-white/[0.05]">
+              {results.map((r, i) => (
+                <div key={i} className="px-5 py-2.5 flex items-center gap-2.5">
+                  {r.ok ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                  )}
+                  <span className="text-[13px] text-foreground truncate">@{r.username ?? "—"}</span>
+                  {r.ok && r.url ? (
+                    <a href={r.url} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-[11px] text-brand hover:underline">
+                      ver tweet <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : (
+                    <span className="ml-auto text-[11px] text-destructive truncate max-w-[60%]" title={r.error}>{r.error?.slice(0, 80)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

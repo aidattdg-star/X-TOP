@@ -370,3 +370,89 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     }
     return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
   });
+
+/** Agenda os posts com intervalo humano aleatório (min–max min) na fila; o worker
+ *  publica em background, espaçado, pra não dar burst/ban. */
+export const schedulePostTweet = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: {
+    accountIds: string[];
+    text: string;
+    mode?: "same" | "random";
+    mediaFileId?: string;
+    folderId?: string;
+    minMinutes: number;
+    maxMinutes: number;
+  }) =>
+    z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(500),
+      text: z.string().max(280),
+      mode: z.enum(["same", "random"]).optional(),
+      mediaFileId: z.string().uuid().optional(),
+      folderId: z.string().uuid().optional(),
+      minMinutes: z.number().min(0.5).max(1440),
+      maxMinutes: z.number().min(0.5).max(2880),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const text = data.text.trim();
+    const withMedia = !!(data.folderId || data.mediaFileId);
+    if (!text && !withMedia) throw new Error("Escreva o texto ou escolha uma mídia.");
+    if (withMedia && data.mode !== "same" && data.folderId) {
+      const { count } = await context.supabase
+        .from("media_files").select("id", { count: "exact", head: true }).eq("folder_id", data.folderId);
+      if (!count) throw new Error("Pasta de mídia vazia — envie imagens antes.");
+    }
+
+    const minM = Math.max(0.5, data.minMinutes);
+    const maxM = Math.max(minM, data.maxMinutes);
+
+    const { data: flow, error: fe } = await context.supabase
+      .from("automation_flows")
+      .insert({
+        user_id: context.userId,
+        name: `Postagem agendada — ${new Date().toLocaleString("pt-BR")}`,
+        description: `${data.accountIds.length} post(s) humanizado(s)`,
+        status: "draft",
+        react_flow_data: { nodes: [], edges: [] } as any,
+        account_ids: [],
+      })
+      .select("id")
+      .single();
+    if (fe || !flow) throw new Error(`Falha ao criar agendamento: ${fe?.message}`);
+
+    // embaralha e espaça com gaps aleatórios entre min e max
+    const ids = [...data.accountIds];
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const base = Date.now();
+    let offset = Math.random() * minM * 60_000;
+    const rows = ids.map((accId) => {
+      const at = base + offset;
+      offset += (minM + Math.random() * (maxM - minM)) * 60_000;
+      return {
+        user_id: context.userId,
+        flow_id: flow.id,
+        twitter_account_id: accId,
+        action_type: "action.post_tweet",
+        payload: {
+          config: {
+            text,
+            media_folder_id: data.mode !== "same" ? data.folderId : undefined,
+            media_file_id: data.mode === "same" ? data.mediaFileId : undefined,
+            anti_duplicate: true,
+          },
+        },
+        scheduled_for: new Date(at).toISOString(),
+        status: "pending",
+      };
+    });
+
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await context.supabase.from("execution_queue").insert(rows.slice(i, i + 500) as never);
+      if (error) throw new Error(`Falha ao enfileirar: ${error.message}`);
+    }
+    return { flow_id: flow.id, tasks: rows.length, min: minM, max: maxM };
+  });

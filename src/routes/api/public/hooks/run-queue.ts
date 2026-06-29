@@ -398,6 +398,7 @@ async function runTask(admin: any, task: any) {
     commentReply,
     likeTweet,
     buildDispatcher,
+    uploadTweetMedia,
   } = await import("@/lib/twitter-client.server");
 
   if (!task.twitter_account_id) throw new Error("Tarefa sem twitter_account_id");
@@ -434,21 +435,27 @@ async function runTask(admin: any, task: any) {
     switch (kind) {
       case "action.post_tweet": {
         let text = pickTextVariant(String(config.text ?? "").trim());
-        if (!text) throw new Error("Texto do tweet vazio");
-        if (config.anti_duplicate !== false) {
+        // m\u00EDdia opcional (pasta aleat\u00F3ria ou imagem fixa) \u2014 sobe pro X antes do post
+        let mediaIds: string[] | undefined;
+        if (config.media_folder_id || config.media_file_id) {
+          const mid = await resolveAndUploadMedia(admin, task.user_id, tokens, dispatcher, config, uploadTweetMedia);
+          if (mid) mediaIds = [mid];
+        }
+        if (!text && !mediaIds) throw new Error("Texto do tweet vazio");
+        if (text && config.anti_duplicate !== false) {
           text = humanizeShortContent(text, `${task.id}:${acc.username}:post`);
           const minute = Math.floor(Date.now() / 60_000);
           const zw = "\u200B".repeat((minute % 5) + 1);
           text = `${text}${zw}`;
         }
         const r = await runWithDuplicateRetry(
-          (nextText) => postTweet(tokens, nextText, dispatcher),
+          (nextText) => postTweet(tokens, nextText, dispatcher, mediaIds),
           text,
-          config.anti_duplicate !== false,
+          !!text && config.anti_duplicate !== false,
           `${task.id}:${acc.username}:post`,
         );
         await log(admin, task.user_id, task.flow_id, "info",
-          `Tweet publicado: https://x.com/${acc.username}/status/${r.rest_id}`, task.twitter_account_id);
+          `Tweet publicado${mediaIds ? " (com m\u00EDdia)" : ""}: https://x.com/${acc.username}/status/${r.rest_id}`, task.twitter_account_id);
         break;
       }
       case "action.retweet": {
@@ -819,6 +826,44 @@ async function bumpAndMaybeCooldown(
   } catch {
     /* colunas rt_count/like_count podem não existir até rodar o SQL — tolera */
   }
+}
+
+// Resolve a mídia do config (imagem fixa ou aleatória da pasta), baixa do storage
+// e sobe pro X, devolvendo o media_id. Lança erro claro se a pasta estiver vazia
+// ou o upload falhar (pra cair no log como falha).
+async function resolveAndUploadMedia(
+  admin: any,
+  userId: string,
+  tokens: any,
+  dispatcher: any,
+  config: any,
+  uploadTweetMedia: (t: any, b64: string, d?: any) => Promise<string>,
+): Promise<string | null> {
+  let storagePath: string | null = null;
+  if (config.media_file_id) {
+    const { data: f } = await admin
+      .from("media_files").select("storage_path, user_id").eq("id", config.media_file_id).maybeSingle();
+    if (!f || f.user_id !== userId) throw new Error("Mídia não encontrada");
+    storagePath = f.storage_path;
+  } else if (config.media_folder_id) {
+    const { data: files } = await admin
+      .from("media_files").select("storage_path").eq("folder_id", config.media_folder_id).eq("user_id", userId);
+    if (!files?.length) throw new Error("Pasta de mídia vazia");
+    storagePath = files[Math.floor(Math.random() * files.length)].storage_path;
+  }
+  if (!storagePath) return null;
+
+  const { data: blob, error } = await admin.storage.from("media").download(storagePath);
+  if (error || !blob) throw new Error(`Falha ao baixar mídia: ${error?.message ?? "vazio"}`);
+  const ab = await blob.arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+  }
+  const b64 = btoa(binary);
+  return await uploadTweetMedia(tokens, b64, dispatcher);
 }
 
 // Incrementa o contador de falhas do proxy vinculado à conta (sinaliza proxy ruim).
