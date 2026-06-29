@@ -372,7 +372,27 @@ function PostTweetPage() {
             placeholder={ritmo === "reply" ? "O que a conta vai responder no tweet…" : "O que está acontecendo? Variações com {a|b} e ||| pra evitar duplicidade."}
             className="relative w-full px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors resize-none"
           />
-          <p className="relative mt-1 text-[10px] text-muted-foreground">{text.length}/280</p>
+          <div className="relative mt-1 flex items-center justify-between gap-2">
+            <p className="text-[10px] text-muted-foreground">{text.length}/280</p>
+            {ritmo !== "reply" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const tip = "say 'yes' for a dm ||| dm me 'yes' ||| comment {yes|sim|👀} for a dm";
+                  setText((t) => (t.trim() ? t : tip));
+                  toast.message("Use ||| pra alternar frases e {a|b} pra variar palavras — cada conta posta uma variação.");
+                }}
+                className="text-[10px] text-brand hover:underline"
+              >
+                + variações (randomizar por conta)
+              </button>
+            )}
+          </div>
+          {ritmo !== "reply" && /\|\|\||\{[^}]+\}/.test(text) && (
+            <p className="relative mt-1 text-[10px] text-emerald-400/90">
+              ✓ Variação ativa — cada conta vai postar uma versão diferente (anti-spam).
+            </p>
+          )}
         </div>
 
         {/* Mídia */}

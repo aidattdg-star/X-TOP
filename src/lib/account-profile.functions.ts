@@ -18,6 +18,26 @@ async function downloadAsBase64(supabase: any, storagePath: string): Promise<str
   return btoa(binary);
 }
 
+// Expande spintax {a|b|c} aleatoriamente (suporta aninhado).
+function expandSpintax(text: string): string {
+  let out = text;
+  for (let i = 0; i < 8; i++) {
+    const next = out.replace(/\{([^{}]+)\}/g, (_m, body: string) => {
+      const opts = String(body).split("|").map((o) => o.trim()).filter(Boolean);
+      return opts.length ? opts[Math.floor(Math.random() * opts.length)] : body;
+    });
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+// Escolhe UMA variação por conta: separa por ||| (texto alternativo) e expande {a|b}.
+function pickVariant(text: string): string {
+  const alts = text.split(/\s*\|\|\|\s*/).map((p) => p.trim()).filter(Boolean);
+  const base = alts.length ? alts[Math.floor(Math.random() * alts.length)] : text;
+  return expandSpintax(base);
+}
+
 async function downloadAsBuffer(supabase: any, storagePath: string): Promise<Uint8Array> {
   const { data: blob, error } = await supabase.storage.from("media").download(storagePath);
   if (error || !blob) throw new Error(`Falha ao baixar mídia: ${error?.message ?? "vazio"}`);
@@ -436,7 +456,9 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
           mediaIds = [mid];
         }
 
-        const r = await postTweet(tokens, text, dispatcher, mediaIds);
+        // Cada conta posta UMA variação randomizada (||| alterna textos, {a|b} varia palavras).
+        const accText = text ? pickVariant(text) : text;
+        const r = await postTweet(tokens, accText, dispatcher, mediaIds);
         await persistRefreshed(context.supabase, accountId, tokens);
         results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
         if (r.rest_id) posted.push({ accountId, restId: r.rest_id });
