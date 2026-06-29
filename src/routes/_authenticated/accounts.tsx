@@ -9,7 +9,7 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
@@ -108,6 +108,25 @@ function AccountsPage() {
       .from("twitter_accounts").update({ folder_id: folderId }).eq("id", accountId);
     if (error) return toast.error(error.message);
     qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+  }
+
+  async function createFolder() {
+    const name = prompt("Nome da nova pasta:")?.trim();
+    if (!name) return;
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return toast.error("Não autenticado");
+    // Reaproveita se já existir uma pasta com o mesmo nome.
+    const { data: existing } = await supabase
+      .from("account_folders").select("id").eq("user_id", u.user.id).eq("name", name).maybeSingle();
+    if (existing) {
+      toast.info(`A pasta "${name}" já existe`);
+      qc.invalidateQueries({ queryKey: ["account_folders"] });
+      return;
+    }
+    const { error } = await supabase.from("account_folders").insert({ user_id: u.user.id, name });
+    if (error) return toast.error(error.message);
+    toast.success(`Pasta "${name}" criada`);
+    qc.invalidateQueries({ queryKey: ["account_folders"] });
   }
 
   async function deleteFolder(folderId: string, name: string) {
@@ -269,6 +288,14 @@ function AccountsPage() {
                 suspended
               />
             )}
+            <button
+              type="button"
+              onClick={createFolder}
+              className="group flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-brand/40 text-brand hover:bg-brand/[0.06] transition-colors min-h-[96px] p-4"
+            >
+              <Plus className="h-5 w-5" />
+              <span className="text-xs font-medium">Nova pasta</span>
+            </button>
           </div>
         )}
 
@@ -295,6 +322,7 @@ function AccountsPage() {
                 count={accounts.filter((a) => !isSuspended(a) && (a as any).folder_id === f.id).length}
                 active={folderFilter === f.id}
                 onClick={() => setFolderFilter(f.id)}
+                onDelete={() => deleteFolder(f.id, f.name)}
               />
             ))}
             {accounts.some(isSuspended) && (
@@ -305,6 +333,14 @@ function AccountsPage() {
                 onClick={() => setFolderFilter("__banned__")}
               />
             )}
+            <button
+              type="button"
+              onClick={createFolder}
+              title="Criar nova pasta"
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-brand/40 text-brand hover:bg-brand/10 px-3 py-1 text-xs transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" /> Nova pasta
+            </button>
           </div>
         )}
 
