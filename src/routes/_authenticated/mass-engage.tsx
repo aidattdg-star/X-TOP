@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle, Zap } from "lucide-react";
+import { Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle, Zap, Timer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/mass-engage")({
   component: MassEnagePage,
 });
 
-type Account = { id: string; username: string; status: string | null };
+type Account = { id: string; username: string; status: string | null; cooldown_until?: string | null };
 type Block = { id: string; tweet_url: string; account_ids: string[] };
 
 function uid() {
@@ -29,19 +29,28 @@ function MassEnagePage() {
 
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ["mass-engage-accounts"],
+    refetchInterval: 30000,
     queryFn: async () => {
       await supabase.auth.getSession();
       const { data, error } = await supabase
         .from("twitter_accounts")
-        .select("id, username, status")
+        .select("id, username, status, cooldown_until")
         .order("username");
       if (error) throw error;
       return (data ?? []) as Account[];
     },
   });
 
+  const isCooling = (a: Account) => !!a.cooldown_until && Date.parse(a.cooldown_until) > Date.now();
+
+  // Disponíveis = não banidas e fora do refresh. Só essas podem ser selecionadas.
   const activeAccounts = useMemo(
-    () => accounts.filter((a) => a.status !== "banned"),
+    () => accounts.filter((a) => a.status !== "banned" && !isCooling(a)),
+    [accounts],
+  );
+  // Em refresh (cooldown pós-RT/Like) — não selecionáveis.
+  const coolingAccounts = useMemo(
+    () => accounts.filter((a) => a.status !== "banned" && isCooling(a)),
     [accounts],
   );
 
@@ -218,6 +227,36 @@ function MassEnagePage() {
           </div>
         )}
       </section>
+
+      {/* Contas em refresh (cooldown pós-RT/Like) — não selecionáveis */}
+      {coolingAccounts.length > 0 && (
+        <section className="border border-amber-500/20 bg-amber-500/[0.04] rounded-lg p-5">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <Timer className="h-4 w-4 text-amber-400" />
+            <h2 className="text-sm font-medium">Contas em refresh</h2>
+            <span className="grid h-5 min-w-[20px] px-1.5 place-items-center rounded-full bg-amber-500/20 text-amber-300 text-[11px] font-semibold tabular-nums">
+              {coolingAccounts.length}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              descansando 1h após RT/Like — não dá pra selecionar até liberar
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-44 overflow-y-auto">
+            {coolingAccounts.map((a) => {
+              const mins = Math.max(1, Math.ceil((Date.parse(a.cooldown_until!) - Date.now()) / 60000));
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 opacity-70"
+                >
+                  <span className="text-xs text-muted-foreground truncate">@{a.username}</span>
+                  <span className="text-[10px] text-amber-300 tabular-nums whitespace-nowrap">{mins}min</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Blocos manuais */}
       <section className="border rounded-lg p-5 space-y-4">
