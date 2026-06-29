@@ -38,6 +38,30 @@ function pickVariant(text: string): string {
   return expandSpintax(base);
 }
 
+// Conta caiu? (suspensa/banida/sessão inválida) — mesmos sinais do worker.
+function isDeadMsg(m: string): boolean {
+  return /suspended|account is (temporarily )?locked|account has been locked|could not authenticate you|deactivated|user has been suspended|\bbanned\b|\(64\)|\(32\)/i.test(m);
+}
+// Em falha de ação imediata: se a conta caiu, marca DIE (conta+proxy); se "bounce", LIMITADA.
+async function markDownIfFell(supabase: any, accountId: string, msg: string): Promise<void> {
+  try {
+    if (isDeadMsg(msg)) {
+      const { data: a } = await supabase
+        .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+      await supabase.from("twitter_accounts")
+        .update({ status: "banned", warming_until: null, updated_at: new Date().toISOString() }).eq("id", accountId);
+      if (a?.proxy_id) {
+        const { error } = await supabase.from("proxies")
+          .update({ status: "dead", quality: "dead", updated_at: new Date().toISOString() }).eq("id", a.proxy_id);
+        if (error) await supabase.from("proxies").update({ status: "dead" }).eq("id", a.proxy_id);
+      }
+    } else if (/\bbounce\b/i.test(msg)) {
+      await supabase.from("twitter_accounts")
+        .update({ limited_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", accountId);
+    }
+  } catch { /* tolera (colunas podem variar) */ }
+}
+
 async function downloadAsBuffer(supabase: any, storagePath: string): Promise<Uint8Array> {
   const { data: blob, error } = await supabase.storage.from("media").download(storagePath);
   if (error || !blob) throw new Error(`Falha ao baixar mídia: ${error?.message ?? "vazio"}`);
@@ -361,7 +385,9 @@ export const unprotectAccounts = createServerFn({ method: "POST" })
         await persistRefreshed(context.supabase, accountId, tokens);
         results.push({ accountId, username: acc.username, ok: true });
       } catch (e) {
-        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+        const msg = e instanceof Error ? e.message : String(e);
+        await markDownIfFell(context.supabase, accountId, msg);
+        results.push({ accountId, ok: false, error: msg });
       }
     }
     return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
@@ -523,7 +549,9 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
         results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
         if (r.rest_id) posted.push({ accountId, restId: r.rest_id });
       } catch (e) {
-        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+        const msg = e instanceof Error ? e.message : String(e);
+        await markDownIfFell(context.supabase, accountId, msg);
+        results.push({ accountId, ok: false, error: msg });
       }
     }
 
@@ -640,7 +668,9 @@ export const replyToTweetAccounts = createServerFn({ method: "POST" })
         await persistRefreshed(context.supabase, accountId, tokens);
         results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
       } catch (e) {
-        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+        const msg = e instanceof Error ? e.message : String(e);
+        await markDownIfFell(context.supabase, accountId, msg);
+        results.push({ accountId, ok: false, error: msg });
       }
     }
     return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };

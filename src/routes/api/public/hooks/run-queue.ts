@@ -366,6 +366,20 @@ async function handle(): Promise<Response> {
           continue;
         }
 
+        // "bounce" = o X travou a ação (verificação/captcha pendente). Não é morte,
+        // mas a conta não consegue agir — marca como LIMITADA e para de tentar.
+        if (/\bbounce\b/i.test(msg)) {
+          await markAccountLimited(supabaseAdmin, task.twitter_account_id);
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "failed", last_error: "Conta travada (bounce) — marcada como LIMITADA. Verifique (telefone/captcha).", updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "warn",
+            "Conta LIMITADA (bounce/verificação pendente do X).", task.twitter_account_id);
+          result.failed++;
+          continue;
+        }
+
         // Bloqueios temporários do X: 226 (parece automatizado), rate limit, "try again later".
         const isTemporary = /\(226\)|might be automated|try again later|\b429\b|rate.?limit|over capacity|timeout|ECONN|ETIMEDOUT|socket/i.test(msg);
         // Falha provavelmente ligada ao proxy/IP → conta contra a qualidade do proxy.
