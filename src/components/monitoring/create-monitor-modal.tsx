@@ -137,14 +137,21 @@ export function CreateMonitorModal({
 
   async function handleTest() {
     if (!handles.length) return toast.error("Cole ao menos um @ alvo para testar.");
+    // dedup e testa em lotes de 20 (limite do servidor) — funciona com qualquer quantidade
+    const uniq = Array.from(new Set(handles));
     setTesting(true);
-    setTestResults(null);
+    setTestResults([]);
     try {
-      const r = await runTest({ data: { handles } });
-      setTestResults(r.results);
-      const ok = r.results.filter((x) => x.ok).length;
-      if (ok === r.results.length) toast.success(`Todos os ${ok} @ alvo(s) existem ✓`);
-      else toast.warning(`${ok}/${r.results.length} ok — confira abaixo`);
+      const all: { handle: string; ok: boolean; name?: string; error?: string }[] = [];
+      for (let i = 0; i < uniq.length; i += 20) {
+        const chunk = uniq.slice(i, i + 20);
+        const r = await runTest({ data: { handles: chunk } });
+        all.push(...r.results);
+        setTestResults([...all]); // resultado progressivo
+      }
+      const ok = all.filter((x) => x.ok).length;
+      if (ok === all.length) toast.success(`Todos os ${ok} @ alvo(s) existem ✓`);
+      else toast.warning(`${ok}/${all.length} ok · ${all.length - ok} não encontrado(s)`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao testar");
     } finally {
