@@ -23,7 +23,6 @@ import {
   Activity,
   Trophy,
   Heart,
-  ShieldAlert,
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -459,53 +458,58 @@ function Dashboard() {
             </div>
 
             {/* Saúde das contas */}
-            <div className="border-t border-white/[0.06] p-4 space-y-3">
+            <div className="border-t border-white/[0.06] p-4 space-y-3.5">
               {healthList === null ? (
                 <p className="text-[11px] text-muted-foreground">Saúde indisponível — rode os SQLs de cota.</p>
-              ) : (
-                <>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[12px] font-semibold tabular-nums border"
-                      style={{
-                        color: healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED,
-                        borderColor: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "44",
-                        background: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "16",
-                      }}
-                    >
-                      {healthScore}%
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm text-foreground">Saúde das contas</p>
-                      <p className="text-[11px] text-muted-foreground">{healthSummary.ok} de {healthTotal} saudáveis</p>
+              ) : (() => {
+                const scoreColor = healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED;
+                // Não exibe nomes de contas banidas/suspensas — só as que pedem ação.
+                const atRisk = attention.filter((h) => h.level !== "dead");
+                return (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <ScoreRing value={healthScore} color={scoreColor} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">Saúde das contas</p>
+                        <p className="text-[11px] text-muted-foreground">{healthSummary.ok} de {healthTotal} saudáveis</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <MiniStat color={EMERALD} label="Saudável" n={healthSummary.ok} />
-                    <MiniStat color={AMBER} label="Atenção" n={healthSummary.warn} />
-                    <MiniStat color={CYAN} label="Refresh" n={healthSummary.cooldown} />
-                    <MiniStat color={RED} label="Limitada" n={healthSummary.limited + healthSummary.dead} />
-                  </div>
-                  {attention.length === 0 ? (
-                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-300/90">
-                      <ShieldCheck className="h-3.5 w-3.5" /> Tudo certo — nada perto dos limites.
-                    </p>
-                  ) : (
-                    <div className="border-t border-white/[0.06] pt-2 space-y-1 max-h-32 overflow-auto">
-                      {attention.slice(0, 5).map((h) => (
-                        <div key={h.id} className="flex items-center gap-2 text-[11px]">
-                          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: h.color }} />
-                          <span className="truncate flex-1 text-muted-foreground">@{h.username}</span>
-                          <span className="shrink-0 tabular-nums" style={{ color: h.color }}>{h.label}</span>
-                        </div>
-                      ))}
-                      {attention.length > 5 && (
-                        <p className="text-[10px] text-muted-foreground pt-0.5">+{attention.length - 5} outra(s)</p>
-                      )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <StatTile color={EMERALD} label="Saudável" n={healthSummary.ok} />
+                      <StatTile color={AMBER} label="Atenção" n={healthSummary.warn} />
+                      <StatTile color={CYAN} label="Refresh" n={healthSummary.cooldown} />
+                      <StatTile color={RED} label="Limitada" n={healthSummary.limited + healthSummary.dead} />
                     </div>
-                  )}
-                </>
-              )}
+                    {atRisk.length === 0 ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-emerald-400/15 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-emerald-300/90">
+                        <ShieldCheck className="h-3.5 w-3.5 shrink-0" /> Tudo certo — nada perto dos limites.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Precisam de atenção</p>
+                        {atRisk.slice(0, 4).map((h) => (
+                          <div key={h.id} className="flex items-center gap-2.5">
+                            <div className="h-6 w-6 shrink-0 rounded-full overflow-hidden bg-white/[0.06] grid place-items-center text-[9px] text-muted-foreground uppercase ring-1 ring-white/10">
+                              {h.profile_picture_url ? (
+                                <img src={h.profile_picture_url} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                h.username.slice(0, 2)
+                              )}
+                            </div>
+                            <span className="truncate flex-1 text-[12px] text-foreground">@{h.username}</span>
+                            <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ color: h.color, background: h.color + "1a" }}>
+                              {h.label}
+                            </span>
+                          </div>
+                        ))}
+                        {atRisk.length > 4 && (
+                          <p className="text-[10px] text-muted-foreground">+{atRisk.length - 4} outra(s)</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </Panel>
         </div>
@@ -638,14 +642,39 @@ function EmptyMini({ text }: { text: string }) {
   return <div className="px-5 py-12 text-center text-xs text-muted-foreground">{text}</div>;
 }
 
-function MiniStat({ color, label, n }: { color: string; label: string; n: number }) {
+function StatTile({ color, label, n }: { color: string; label: string; n: number }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.015] px-2.5 py-1.5">
+    <div
+      className="flex items-center justify-between rounded-lg border px-2.5 py-2"
+      style={{ borderColor: color + "22", background: color + "0d" }}
+    >
       <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
         {label}
       </span>
-      <span className="text-[12px] tabular-nums text-foreground">{n}</span>
+      <span className="text-[13px] font-medium tabular-nums" style={{ color }}>{n}</span>
+    </div>
+  );
+}
+
+function ScoreRing({ value, color }: { value: number; color: string }) {
+  const r = 16;
+  const circ = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, value));
+  const off = circ * (1 - v / 100);
+  return (
+    <div className="relative h-12 w-12 shrink-0">
+      <svg viewBox="0 0 40 40" className="h-12 w-12 -rotate-90">
+        <circle cx="20" cy="20" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3.5" />
+        <circle
+          cx="20" cy="20" r={r} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={off}
+          style={{ transition: "stroke-dashoffset .6s ease" }}
+        />
+      </svg>
+      <span className="absolute inset-0 grid place-items-center text-[11px] font-semibold tabular-nums" style={{ color }}>
+        {v}%
+      </span>
     </div>
   );
 }
