@@ -70,6 +70,8 @@ export function CreateMonitorModal({
   const [intervalMin, setIntervalMin] = useState(3);
   const [intervalMax, setIntervalMax] = useState(12);
   const [testMode, setTestMode] = useState(false);
+  const [rotateOn, setRotateOn] = useState(false);
+  const [rotateEvery, setRotateEvery] = useState(10);
   const [selected, setSelected] = useState<string[]>([]);
   const [acctFilter, setAcctFilter] = useState("");
   const [saving, setSaving] = useState(false);
@@ -127,6 +129,8 @@ export function CreateMonitorModal({
                     interval_max: effMax,
                     interval_minutes: effMin,
                     select_mode: "last",
+                    rotate: rotateOn,
+                    rotate_every: Math.max(1, rotateEvery),
                   },
                 },
               },
@@ -293,6 +297,48 @@ export function CreateMonitorModal({
             <p className="text-xs text-muted-foreground">
               O app checa em intervalos <b>aleatórios</b> entre mín e máx (nunca redondo, mais
               humano). No modo teste, ~1 min pra você ver rápido.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+              Rodízio entre contas
+            </Label>
+            <button
+              type="button"
+              onClick={() => setRotateOn(!rotateOn)}
+              className={cn(
+                "flex items-center gap-2.5 w-full rounded-xl border px-3 py-2.5 transition-colors text-left",
+                rotateOn ? "border-brand/50 bg-brand/10" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+              )}
+            >
+              <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-lg", rotateOn ? "gradient-brand text-white" : "bg-white/[0.06] text-muted-foreground")}>
+                <Repeat2 className="h-3.5 w-3.5" />
+              </span>
+              <span className="flex-1">
+                <span className="block text-xs font-medium text-foreground">Ativar rodízio</span>
+                <span className="block text-[11px] text-muted-foreground">só 1 conta age por vez; troca pra próxima a cada N ações</span>
+              </span>
+              <span className={cn("h-4 w-4 rounded-full border-2 grid place-items-center", rotateOn ? "border-brand" : "border-white/20")}>
+                {rotateOn && <span className="h-2 w-2 rounded-full gradient-brand" />}
+              </span>
+            </button>
+            {rotateOn && (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-muted-foreground">Trocar de conta a cada</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={rotateEvery}
+                  onChange={(e) => setRotateEvery(Math.max(1, Number(e.target.value) || 1))}
+                  className="h-9 w-20 bg-white/[0.04] border-white/10 focus-visible:border-brand/40 text-center"
+                />
+                <span className="text-xs text-muted-foreground">ação(ões)</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Com rodízio, a cada tweet novo do alvo só <b>uma</b> conta age. Quando ela atinge {rotateOn ? rotateEvery : "N"} ações, passa pra próxima — assim nenhuma conta spama tudo.
             </p>
           </div>
 

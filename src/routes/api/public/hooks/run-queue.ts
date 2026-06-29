@@ -191,8 +191,32 @@ async function handle(): Promise<Response> {
           }
         }
 
+        // RODÍZIO entre contas: só 1 conta age por tweet; troca a cada N ações.
+        let actingAccounts = validAccountIds;
+        const rotate = !!mcfg.rotate && validAccountIds.length > 1;
+        const rotateEvery = Math.max(1, Number(mcfg.rotate_every) || 10);
+        let nextRotIndex: number | null = null;
+        let nextRotCount: number | null = null;
+        let rotatingName = "";
+        if (rotate && picked) {
+          const ordered = [...validAccountIds].sort();
+          let rIndex = 0, rCount = 0;
+          try {
+            const { data: rs } = await supabaseAdmin
+              .from("flow_monitor_state").select("rotate_index, rotate_count").eq("flow_id", flow.id).maybeSingle();
+            rIndex = Number((rs as any)?.rotate_index ?? 0) || 0;
+            rCount = Number((rs as any)?.rotate_count ?? 0) || 0;
+          } catch { /* colunas podem não existir até rodar o SQL */ }
+          const curIdx = ((rIndex % ordered.length) + ordered.length) % ordered.length;
+          actingAccounts = [ordered[curIdx]];
+          rotatingName = (accs.find((a: any) => a.id === ordered[curIdx])?.username as string) ?? "";
+          const cnt = rCount + 1;
+          if (cnt >= rotateEvery) { nextRotIndex = (curIdx + 1) % ordered.length; nextRotCount = 0; }
+          else { nextRotIndex = curIdx; nextRotCount = cnt; }
+        }
+
         if (picked) {
-          const rows = expandActions(flow.id, flow.user_id, validAccountIds, nodes, edges, picked.id);
+          const rows = expandActions(flow.id, flow.user_id, actingAccounts, nodes, edges, picked.id);
           if (rows.length) {
             const { error: insErr } = await supabaseAdmin.from("execution_queue").insert(rows);
             if (insErr) {
@@ -202,8 +226,18 @@ async function handle(): Promise<Response> {
             } else {
               result.re_enqueued += rows.length;
               processedSet.add(picked.id);
+              // persiste o estado do rodízio (tolerante a colunas ausentes)
+              if (rotate && nextRotIndex !== null) {
+                try {
+                  await supabaseAdmin.from("flow_monitor_state")
+                    .update({ rotate_index: nextRotIndex, rotate_count: nextRotCount } as never)
+                    .eq("flow_id", flow.id);
+                } catch { /* colunas podem não existir */ }
+              }
               await log(supabaseAdmin, flow.user_id, flow.id, "info",
-                `Monitor @${handle}: tweet ${picked.id} selecionado (${(monitor.data?.config?.select_mode as string) || "last"}) — enfileirado ${rows.length} tarefa(s)`);
+                rotate
+                  ? `Monitor @${handle}: tweet ${picked.id} — rodízio agindo com @${rotatingName} (troca a cada ${rotateEvery}) — ${rows.length} tarefa(s)`
+                  : `Monitor @${handle}: tweet ${picked.id} selecionado (${(monitor.data?.config?.select_mode as string) || "last"}) — enfileirado ${rows.length} tarefa(s)`);
             }
           }
         } else if (tweets.length) {
