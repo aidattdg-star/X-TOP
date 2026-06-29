@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign, replyToTweetAccounts } from "@/lib/account-profile.functions";
 import { registerMediaFile } from "@/lib/media.functions";
+import { spamFolderIdSet, isSpamAccount } from "@/lib/spam-folder";
 import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload, Reply, Play } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
@@ -139,13 +140,18 @@ function PostTweetPage() {
     },
   });
 
+  // Contas na pasta "SPAM" não aparecem aqui.
+  const spamIds = useMemo(() => spamFolderIdSet(accFolders), [accFolders]);
+  const selectableFolders = useMemo(() => accFolders.filter((f) => !spamIds.has(f.id)), [accFolders, spamIds]);
+
   const shown = useMemo(() => {
     const q = acctFilter.trim().toLowerCase();
     return accounts.filter((a) => {
+      if (isSpamAccount(a.folder_id, spamIds)) return false;
       if (folderTab === "__none__" ? a.folder_id : folderTab !== "__all__" && a.folder_id !== folderTab) return false;
       return !q || a.username.toLowerCase().includes(q);
     });
-  }, [accounts, acctFilter, folderTab]);
+  }, [accounts, acctFilter, folderTab, spamIds]);
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -538,7 +544,7 @@ function PostTweetPage() {
           <div className="relative flex flex-wrap gap-1.5">
             <Pill label="Todas" active={folderTab === "__all__"} onClick={() => setFolderTab("__all__")} />
             <Pill label="Sem pasta" active={folderTab === "__none__"} onClick={() => setFolderTab("__none__")} />
-            {accFolders.map((f) => (
+            {selectableFolders.map((f) => (
               <Pill key={f.id} label={f.name} active={folderTab === f.id} onClick={() => setFolderTab(f.id)} />
             ))}
           </div>

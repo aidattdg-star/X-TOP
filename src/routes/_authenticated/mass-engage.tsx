@@ -17,6 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { runMassEngage } from "@/lib/mass-engage.functions";
+import { spamFolderIdSet, isSpamAccount } from "@/lib/spam-folder";
 
 export const Route = createFileRoute("/_authenticated/mass-engage")({
   component: MassEnagePage,
@@ -69,10 +70,13 @@ function MassEnagePage() {
   });
 
   const isCooling = (a: Account) => !!a.cooldown_until && Date.parse(a.cooldown_until) > Date.now();
+  // Contas na pasta "SPAM" não aparecem em nenhum seletor.
+  const spamIds = useMemo(() => spamFolderIdSet(folders), [folders]);
+  const selectableFolders = useMemo(() => folders.filter((f) => !spamIds.has(f.id)), [folders, spamIds]);
 
   const activeAccounts = useMemo(
-    () => accounts.filter((a) => a.status !== "banned" && !isCooling(a)),
-    [accounts],
+    () => accounts.filter((a) => a.status !== "banned" && !isCooling(a) && !isSpamAccount(a.folder_id, spamIds)),
+    [accounts, spamIds],
   );
   const coolingAccounts = useMemo(
     () => accounts.filter((a) => a.status !== "banned" && isCooling(a)),
@@ -451,7 +455,7 @@ function MassEnagePage() {
                       active={bf === "__none__"}
                       onClick={() => setBf("__none__")}
                     />
-                    {folders.map((f) => (
+                    {selectableFolders.map((f) => (
                       <FolderChip
                         key={f.id}
                         label={f.name}
@@ -511,7 +515,7 @@ function MassEnagePage() {
                     <p className="text-[11px] text-muted-foreground">Nenhuma pasta — crie em Contas &amp; Proxies.</p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
-                      {folders.map((f) => (
+                      {selectableFolders.map((f) => (
                         <FolderChip
                           key={f.id}
                           label={f.name}
@@ -536,7 +540,7 @@ function MassEnagePage() {
                     <p className="text-[11px] text-muted-foreground">Nenhuma pasta — crie em Contas &amp; Proxies.</p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
-                      {folders.map((f) => (
+                      {selectableFolders.map((f) => (
                         <FolderChip
                           key={f.id}
                           label={f.name}

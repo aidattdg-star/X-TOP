@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { testMonitorTargets } from "@/lib/monitoring.functions";
+import { spamFolderIdSet, isSpamAccount } from "@/lib/spam-folder";
 import {
   Dialog,
   DialogContent,
@@ -117,10 +118,14 @@ export function CreateMonitorModal({
     .filter(Boolean);
 
   // Contas (do prop) que pertencem a uma "visão": "__all__" | "__none__" | folderId
+  // Pasta "SPAM": contas dela não aparecem no seletor.
+  const spamIds = spamFolderIdSet(folders);
   function accountIdsOf(view: string): string[] {
     return accounts
       .filter((a) =>
-        view === "__all__" ? true : view === "__none__" ? !folderMap[a.id] : folderMap[a.id] === view,
+        isSpamAccount(folderMap[a.id], spamIds)
+          ? false
+          : view === "__all__" ? true : view === "__none__" ? !folderMap[a.id] : folderMap[a.id] === view,
       )
       .map((a) => a.id);
   }
@@ -504,7 +509,7 @@ export function CreateMonitorModal({
                   {(() => {
                     const chips = [{ key: "__all__", name: "Todas" }];
                     if (accountIdsOf("__none__").length) chips.push({ key: "__none__", name: "Sem pasta" });
-                    for (const f of folders) if (accountIdsOf(f.id).length) chips.push({ key: f.id, name: f.name });
+                    for (const f of folders) if (!spamIds.has(f.id) && accountIdsOf(f.id).length) chips.push({ key: f.id, name: f.name });
                     return chips.map((c) => {
                       const ids = accountIdsOf(c.key);
                       const full = ids.length > 0 && ids.every((id) => selected.includes(id));

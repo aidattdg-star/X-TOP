@@ -15,6 +15,7 @@ import {
   updateAccountUsername,
   unprotectAccounts,
 } from "@/lib/account-profile.functions";
+import { spamFolderIdSet, isSpamAccount } from "@/lib/spam-folder";
 
 export const Route = createFileRoute("/_authenticated/edit-accounts")({
   component: EditAccountsPage,
@@ -137,9 +138,13 @@ function EditAccountsPage() {
     await moveSelectedToFolder(folderId);
   }
 
+  // Pasta "SPAM": contas dela não aparecem aqui.
+  const spamIds = useMemo(() => spamFolderIdSet(acctFolders ?? []), [acctFolders]);
+  const selectableFolders = (acctFolders ?? []).filter((f) => !spamIds.has(f.id));
+
   const filtered = useMemo(() => {
     if (!accounts) return [];
-    let list = accounts;
+    let list = accounts.filter((a) => !isSpamAccount(a.folder_id, spamIds));
     // Filtro por visão/pasta
     if (view === "todo") list = list.filter((a) => !editedIds?.has(a.id));
     else if (view === "editadas") list = list.filter((a) => editedIds?.has(a.id));
@@ -153,7 +158,7 @@ function EditAccountsPage() {
       );
     }
     return list;
-  }, [accounts, filter, view, editedIds]);
+  }, [accounts, filter, view, editedIds, spamIds]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -210,7 +215,7 @@ function EditAccountsPage() {
               <SelPill label={`A editar (${toEditCount})`} active={view === "todo"} onClick={() => setView("todo")} />
               <SelPill label={`Editadas (${editedCount})`} active={view === "editadas"} onClick={() => setView("editadas")} accent="emerald" />
               <SelPill label={`Todas (${accounts?.length ?? 0})`} active={view === "todas"} onClick={() => setView("todas")} />
-              {(acctFolders ?? []).map((f) => (
+              {selectableFolders.map((f) => (
                 <SelPill
                   key={f.id}
                   label={f.name}
