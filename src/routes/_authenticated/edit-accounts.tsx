@@ -364,8 +364,18 @@ function NameBioCard({
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [website, setWebsite] = useState("");
+  const [randomize, setRandomize] = useState(false);
+  const [randDigits, setRandDigits] = useState(3);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, ok: 0, fail: 0 });
+
+  // Gera N dígitos aleatórios (ex.: 3 -> "364"). Primeiro dígito nunca 0 p/ manter N casas.
+  function randSuffix(digits: number) {
+    const d = Math.max(1, Math.min(6, digits));
+    let s = String(1 + Math.floor(Math.random() * 9));
+    for (let k = 1; k < d; k++) s += String(Math.floor(Math.random() * 10));
+    return s;
+  }
 
   async function submit() {
     if (!name.trim() && !bio.trim() && !website.trim()) {
@@ -378,7 +388,11 @@ function NameBioCard({
     try {
       for (let i = 0; i < accountIds.length; i++) {
         const payload: any = { accountIds: [accountIds[i]] };
-        if (name.trim()) payload.name = name.trim();
+        if (name.trim()) {
+          // Randomizador: cada conta recebe o nome-base + números aleatórios.
+          const base = name.trim();
+          payload.name = randomize ? `${base}${randSuffix(randDigits)}`.slice(0, 50) : base;
+        }
         if (bio.trim()) payload.bio = bio.trim();
         if (website.trim()) payload.website = website.trim();
         try {
@@ -404,10 +418,46 @@ function NameBioCard({
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
-            placeholder="Deixe vazio para não alterar"
+            placeholder={randomize ? "Nome-base (ex.: lolita)" : "Deixe vazio para não alterar"}
             className="w-full mt-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
           />
           <p className="text-[10px] text-muted-foreground mt-1">{name.length}/50</p>
+
+          {/* Randomizador: nome-base + números aleatórios por conta */}
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={randomize}
+                onChange={(e) => setRandomize(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[var(--brand)]"
+              />
+              Randomizar nome (cada conta recebe números diferentes no fim)
+            </label>
+            {randomize && (
+              <div className="flex flex-wrap items-center gap-2 pl-6">
+                <span className="text-[11px] text-muted-foreground">Quantos dígitos:</span>
+                {[2, 3, 4].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setRandDigits(d)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-[11px] border transition-colors",
+                      randDigits === d
+                        ? "gradient-brand text-white border-transparent"
+                        : "border-white/10 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {d}
+                  </button>
+                ))}
+                <span className="text-[11px] text-muted-foreground">
+                  ex.: <b className="text-foreground">{(name.trim() || "lolita") + "3647".slice(0, randDigits)}</b>
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         <div>
           <label className="text-xs text-muted-foreground">Bio</label>
