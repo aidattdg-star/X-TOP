@@ -665,21 +665,14 @@ function ScoreRing({ value, color }: { value: number; color: string }) {
   const circ = 2 * Math.PI * r;
   const v = Math.max(0, Math.min(100, value));
   const off = circ * (1 - v / 100);
-  const gid = "ring-" + color.replace(/[^a-z0-9]/gi, "");
   return (
     <div className="relative h-14 w-14 shrink-0">
       <svg viewBox="0 0 48 48" className="h-14 w-14 -rotate-90">
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor={color} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.55} />
-          </linearGradient>
-        </defs>
-        <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="4" />
+        <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
         <circle
-          cx="24" cy="24" r={r} fill="none" stroke={`url(#${gid})`} strokeWidth="4" strokeLinecap="round"
+          cx="24" cy="24" r={r} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
           strokeDasharray={circ} strokeDashoffset={off}
-          style={{ transition: "stroke-dashoffset .7s cubic-bezier(.2,.7,.2,1)", filter: `drop-shadow(0 0 5px ${color}55)` }}
+          style={{ transition: "stroke-dashoffset .6s ease" }}
         />
       </svg>
       <span className="absolute inset-0 grid place-items-center">
