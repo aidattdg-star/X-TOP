@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Repeat2, MessageCircle, Zap, Check, Loader2, CheckCircle2, XCircle, Heart, Flame } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap, Check, Loader2, CheckCircle2, XCircle, Heart, Flame, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +88,7 @@ export function CreateMonitorModal({
   const [rotateEvery, setRotateEvery] = useState(10);
   const [likeBefore, setLikeBefore] = useState(true);
   const [warmOnAct, setWarmOnAct] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -230,7 +231,7 @@ export function CreateMonitorModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-xl max-h-[85dvh] overflow-y-auto overscroll-contain">
         <DialogHeader>
           <DialogTitle className="font-light text-xl">Novo monitor</DialogTitle>
           <DialogDescription>
@@ -242,7 +243,7 @@ export function CreateMonitorModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 mt-1">
+        <div className="space-y-3 mt-1">
           <div className="space-y-1.5">
             <StepLabel n={1} text="Quem monitorar (@ alvo)" />
             <Textarea
@@ -299,16 +300,14 @@ export function CreateMonitorModal({
                     type="button"
                     onClick={() => setAction(a.value)}
                     className={cn(
-                      "flex flex-col items-center gap-2 rounded-xl border p-3.5 text-xs font-medium transition-all",
+                      "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-medium transition-all text-center",
                       on
                         ? "border-brand/50 bg-brand/10 text-foreground shadow-[0_0_0_1px_oklch(0.66_0.2_285_/_0.25)]"
                         : "border-white/10 text-muted-foreground hover:text-foreground hover:border-brand/30 hover:bg-white/[0.03]",
                     )}
                   >
-                    <span className={cn("grid h-8 w-8 place-items-center rounded-lg border border-white/10", on ? "gradient-brand text-white" : "bg-white/[0.05] text-muted-foreground")}>
-                      <Icon className="h-4 w-4" strokeWidth={1.75} />
-                    </span>
-                    {a.label}
+                    <Icon className={cn("h-4 w-4 shrink-0", on ? "text-brand" : "text-muted-foreground")} strokeWidth={1.75} />
+                    <span className="truncate">{a.label}</span>
                   </button>
                 );
               })}
@@ -431,9 +430,16 @@ export function CreateMonitorModal({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Rodízio entre contas
-            </Label>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((o) => !o)}
+              className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            >
+              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", advancedOpen && "rotate-90")} />
+              Opções avançadas (rodízio)
+            </button>
+            {advancedOpen && (
+            <div className="space-y-2 pt-1">
             <button
               type="button"
               onClick={() => setRotateOn(!rotateOn)}
@@ -470,6 +476,8 @@ export function CreateMonitorModal({
             <p className="text-xs text-muted-foreground">
               Com rodízio, a cada tweet novo do alvo só <b>uma</b> conta age. Quando ela atinge {rotateOn ? rotateEvery : "N"} ações, passa pra próxima — assim nenhuma conta spama tudo.
             </p>
+            </div>
+            )}
           </div>
 
           <div className="space-y-2">
