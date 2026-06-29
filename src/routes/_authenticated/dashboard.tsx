@@ -25,7 +25,6 @@ import {
   Heart,
   ShieldAlert,
   ShieldCheck,
-  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -327,68 +326,6 @@ function Dashboard() {
           />
         </div>
 
-        {/* Saúde & uso das contas */}
-        <div className="mt-4">
-          <Panel title="Saúde & uso das contas" icon={ShieldAlert}>
-            {healthList === null ? (
-              <div className="px-6 py-8 text-xs text-muted-foreground">
-                Monitoramento de cota indisponível — rode <b>REFRESH_COUNTERS.sql</b> e{" "}
-                <b>ACCOUNT_LIMITED.sql</b> no Supabase para habilitar o status de uso.
-              </div>
-            ) : (
-              <div className="p-5 space-y-4">
-                {/* score geral + resumo */}
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="grid h-12 w-12 place-items-center rounded-2xl text-sm font-semibold tabular-nums border"
-                      style={{
-                        color: healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED,
-                        borderColor: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "55",
-                        background: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "1a",
-                      }}
-                    >
-                      {healthScore}%
-                    </span>
-                    <div>
-                      <p className="text-sm text-foreground">Saúde geral</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {healthSummary.ok} de {healthTotal} contas saudáveis
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex-1" />
-                  <div className="flex flex-wrap gap-2">
-                    <HealthChip color={EMERALD} label="Saudável" n={healthSummary.ok} />
-                    <HealthChip color={AMBER} label="Próx. do limite" n={healthSummary.warn} />
-                    <HealthChip color={CYAN} label="Em refresh" n={healthSummary.cooldown} />
-                    <HealthChip color={RED} label="Limitada/Banida" n={healthSummary.limited + healthSummary.dead} />
-                  </div>
-                </div>
-
-                {/* lista de contas que pedem atenção */}
-                {attention.length === 0 ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] px-4 py-4 text-xs text-emerald-300">
-                    <ShieldCheck className="h-4 w-4" />
-                    Tudo certo — nenhuma conta perto dos limites agora.
-                  </div>
-                ) : (
-                  <div>
-                    <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-                      Atenção ({attention.length}) — contas perto dos limites ou descansando
-                    </p>
-                    <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.05] max-h-80 overflow-auto">
-                      {attention.map((h) => (
-                        <HealthRow key={h.id} h={h} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Panel>
-        </div>
-
         {/* Desempenho (área) + medidor */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
           <Panel title="Desempenho" icon={Activity} className="lg:col-span-2">
@@ -446,6 +383,8 @@ function Dashboard() {
             </div>
           </Panel>
 
+          {/* Coluna direita: taxa de conclusão + widget de saúde */}
+          <div className="space-y-4">
           {/* Medidor de taxa de sucesso */}
           <Panel title="Taxa de conclusão" icon={Heart}>
             <div className="relative grid place-items-center py-6">
@@ -492,6 +431,59 @@ function Dashboard() {
               </div>
             </div>
           </Panel>
+
+            {/* Saúde das contas — widget compacto */}
+            <Panel title="Saúde das contas" icon={ShieldAlert}>
+              {healthList === null ? (
+                <p className="px-4 py-4 text-[11px] text-muted-foreground">
+                  Monitoramento indisponível — rode os SQLs de cota.
+                </p>
+              ) : (
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[13px] font-semibold tabular-nums border"
+                      style={{
+                        color: healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED,
+                        borderColor: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "44",
+                        background: (healthScore >= 80 ? EMERALD : healthScore >= 50 ? AMBER : RED) + "16",
+                      }}
+                    >
+                      {healthScore}%
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">Saúde geral</p>
+                      <p className="text-[11px] text-muted-foreground">{healthSummary.ok} de {healthTotal} saudáveis</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <MiniStat color={EMERALD} label="Saudável" n={healthSummary.ok} />
+                    <MiniStat color={AMBER} label="Atenção" n={healthSummary.warn} />
+                    <MiniStat color={CYAN} label="Refresh" n={healthSummary.cooldown} />
+                    <MiniStat color={RED} label="Limitada" n={healthSummary.limited + healthSummary.dead} />
+                  </div>
+                  {attention.length === 0 ? (
+                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Tudo certo — nada perto dos limites.
+                    </p>
+                  ) : (
+                    <div className="border-t border-white/[0.06] pt-2 space-y-1 max-h-36 overflow-auto">
+                      {attention.slice(0, 6).map((h) => (
+                        <div key={h.id} className="flex items-center gap-2 text-[11px]">
+                          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: h.color }} />
+                          <span className="truncate flex-1 text-muted-foreground">@{h.username}</span>
+                          <span className="shrink-0 tabular-nums" style={{ color: h.color }}>{h.label}</span>
+                        </div>
+                      ))}
+                      {attention.length > 6 && (
+                        <p className="text-[10px] text-muted-foreground pt-0.5">+{attention.length - 6} outra(s)</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Panel>
+          </div>
         </div>
 
         {/* Feed + distribuição + ranking */}
@@ -619,7 +611,7 @@ function MetricCard({
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
   return (
-    <div className="group rounded-xl border border-white/[0.06] bg-white/[0.018] p-5 transition-colors hover:border-white/[0.12]">
+    <div className="led-edge group rounded-xl border border-white/[0.06] bg-white/[0.018] p-5 transition-colors hover:border-white/[0.12]">
       <div className="flex items-center gap-2 text-muted-foreground">
         <Icon className="h-4 w-4" strokeWidth={1.75} style={{ color }} />
         <span className="text-[11px] uppercase tracking-[0.14em]">{title}</span>
@@ -635,7 +627,7 @@ function MetricCard({
 
 function Panel({ title, icon: Icon, children, className = "" }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden ${className}`}>
+    <div className={`led-edge rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden ${className}`}>
       <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center gap-2">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
@@ -649,80 +641,14 @@ function EmptyMini({ text }: { text: string }) {
   return <div className="px-5 py-12 text-center text-xs text-muted-foreground">{text}</div>;
 }
 
-function HealthChip({ color, label, n }: { color: string; label: string; n: number }) {
+function MiniStat({ color, label, n }: { color: string; label: string; n: number }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1 text-[11px]">
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-foreground tabular-nums font-medium">{n}</span>
-    </span>
-  );
-}
-
-function QuotaPips({ label, used, max }: { label: string; used: number; max: number }) {
-  const fill = used >= max ? RED : used >= max - 1 ? AMBER : BRAND;
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="text-muted-foreground w-5 text-right">{label}</span>
-      <span className="inline-flex gap-0.5">
-        {Array.from({ length: max }).map((_, i) => (
-          <span
-            key={i}
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: i < used ? fill : "rgba(255,255,255,0.12)" }}
-          />
-        ))}
+    <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.015] px-2.5 py-1.5">
+      <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+        {label}
       </span>
-    </span>
-  );
-}
-
-function HealthRow({
-  h,
-}: {
-  h: {
-    id: string;
-    username: string;
-    profile_picture_url: string | null;
-    rt_count?: number | null;
-    like_count?: number | null;
-    actions24h: number;
-    cooldownLeftMin: number;
-    level: HealthLevel;
-    label: string;
-    color: string;
-  };
-}) {
-  const rt = Number(h.rt_count ?? 0);
-  const lk = Number(h.like_count ?? 0);
-  return (
-    <div className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-white/[0.03]">
-      <div className="h-8 w-8 shrink-0 rounded-full overflow-hidden bg-white/[0.06] grid place-items-center text-[10px] text-muted-foreground uppercase ring-1 ring-white/10">
-        {h.profile_picture_url ? (
-          <img src={h.profile_picture_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          h.username.slice(0, 2)
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] text-foreground leading-tight">@{h.username}</p>
-        <p className="text-[11px] text-muted-foreground leading-tight">
-          {h.level === "cooldown"
-            ? `volta em ${h.cooldownLeftMin} min`
-            : `${h.actions24h} ações nas últimas 24h`}
-        </p>
-      </div>
-      <div className="hidden sm:flex items-center gap-3 text-[10px]">
-        <QuotaPips label="RT" used={rt} max={RT_QUOTA} />
-        <QuotaPips label="♥" used={lk} max={LIKE_QUOTA} />
-      </div>
-      <span
-        className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border"
-        style={{ color: h.color, borderColor: h.color + "55", background: h.color + "1a" }}
-      >
-        {h.level === "cooldown" && <Clock className="h-3 w-3 mr-1" />}
-        {h.label}
-      </span>
+      <span className="text-[12px] tabular-nums text-foreground">{n}</span>
     </div>
   );
 }
