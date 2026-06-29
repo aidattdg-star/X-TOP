@@ -337,6 +337,7 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     text: string;
     mode?: "same" | "random";
     mediaFileId?: string;
+    mediaFileIds?: string[];
     folderId?: string;
     reply?: { text: string; minSeconds: number; maxSeconds: number };
   }) =>
@@ -345,6 +346,8 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
       text: z.string().max(280),
       mode: z.enum(["same", "random"]).optional(),
       mediaFileId: z.string().uuid().optional(),
+      // Várias imagens fixas (até 4) — todas as contas postam o mesmo conjunto.
+      mediaFileIds: z.array(z.string().uuid()).min(1).max(4).optional(),
       folderId: z.string().uuid().optional(),
       // Auto-reply: a própria conta responde o tweet recém-postado após um tempo.
       reply: z.object({
@@ -356,10 +359,26 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const text = data.text.trim();
-    const withMedia = !!(data.folderId || data.mediaFileId);
+    const multiIds = data.mediaFileIds?.length ? data.mediaFileIds : null;
+    const withMedia = !!(data.folderId || data.mediaFileId || multiIds);
     if (!text && !withMedia) throw new Error("Escreva o texto ou escolha uma mídia.");
 
-    const mediaMap = withMedia
+    // Modo "várias imagens fixas": carrega os arquivos (na ordem escolhida).
+    let multiFiles: { storage_path: string }[] | null = null;
+    if (multiIds) {
+      const { data: files } = await context.supabase
+        .from("media_files")
+        .select("id, storage_path, user_id")
+        .in("id", multiIds);
+      const byId = new Map((files ?? []).map((f: any) => [f.id, f]));
+      multiFiles = multiIds.map((id) => {
+        const f = byId.get(id);
+        if (!f || f.user_id !== context.userId) throw new Error("Mídia não encontrada");
+        return { storage_path: f.storage_path };
+      });
+    }
+
+    const mediaMap = withMedia && !multiFiles
       ? await resolveFilesPerAccount(context.supabase, context.userId, data.accountIds, {
           mode: data.mode ?? "random",
           mediaFileId: data.mediaFileId,
@@ -387,7 +406,14 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
         const dispatcher = buildDispatcher(proxy);
 
         let mediaIds: string[] | undefined;
-        if (mediaMap) {
+        if (multiFiles) {
+          // sobe cada imagem por esta conta (media_id é por sessão) e mantém a ordem
+          mediaIds = [];
+          for (const f of multiFiles) {
+            const b64 = await downloadAsBase64(context.supabase, f.storage_path);
+            mediaIds.push(await uploadTweetMedia(tokens, b64, dispatcher));
+          }
+        } else if (mediaMap) {
           const file = mediaMap.get(accountId)!;
           const b64 = await downloadAsBase64(context.supabase, file.storage_path);
           const mid = await uploadTweetMedia(tokens, b64, dispatcher);

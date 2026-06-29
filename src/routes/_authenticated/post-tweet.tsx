@@ -53,7 +53,13 @@ function PostTweetPage() {
   const [folderTab, setFolderTab] = useState<string>("__all__");
   const [mediaFolderId, setMediaFolderId] = useState("");
   const [mediaMode, setMediaMode] = useState<"none" | "random" | "same">("none");
-  const [mediaFileId, setMediaFileId] = useState("");
+  const [mediaFileIds, setMediaFileIds] = useState<string[]>([]); // "mesma imagem" agora aceita até 4
+  const togglePick = (id: string) =>
+    setMediaFileIds((s) => {
+      if (s.includes(id)) return s.filter((x) => x !== id);
+      if (s.length >= 4) { toast.error("Máximo de 4 imagens por tweet."); return s; }
+      return [...s, id];
+    });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, ok: 0 });
 
@@ -232,7 +238,7 @@ function PostTweetPage() {
     if (!text.trim() && mediaMode === "none") return toast.error("Escreva o texto ou escolha uma mídia.");
     if (mediaMode !== "none" && !mediaFolderId) return toast.error("Escolha a pasta de mídia.");
     if (mediaMode !== "none" && mediaFolderCount === 0) return toast.error("Pasta de mídia vazia — envie imagens primeiro.");
-    if (mediaMode === "same" && !mediaFileId) return toast.error("Escolha a imagem.");
+    if (mediaMode === "same" && !mediaFileIds.length) return toast.error("Escolha ao menos uma imagem.");
 
     setBusy(true);
     setResults([]);
@@ -242,7 +248,8 @@ function PostTweetPage() {
       text: text.trim(),
       mode: mediaMode === "none" ? undefined : (mediaMode as "same" | "random"),
       folderId: mediaMode !== "none" ? mediaFolderId : undefined,
-      mediaFileId: mediaMode === "same" ? mediaFileId : undefined,
+      mediaFileId: mediaMode === "same" ? mediaFileIds[0] : undefined,
+      mediaFileIds: mediaMode === "same" ? mediaFileIds : undefined,
     };
 
     // CAMPANHA: distribui as imagens da pasta em N dias, sem repetir (loop opcional)
@@ -376,7 +383,7 @@ function PostTweetPage() {
                   mediaMode === m ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground",
                 )}
               >
-                {m === "none" ? "Sem mídia" : m === "random" ? "Aleatória da pasta" : "Mesma imagem"}
+                {m === "none" ? "Sem mídia" : m === "random" ? "Aleatória da pasta" : "Imagens (até 4)"}
               </button>
             ))}
           </div>
@@ -386,7 +393,7 @@ function PostTweetPage() {
               <p className="text-xs text-muted-foreground mb-1">Pasta da biblioteca (mídias para tweets)</p>
               <select
                 value={mediaFolderId}
-                onChange={(e) => { setMediaFolderId(e.target.value); setMediaFileId(""); }}
+                onChange={(e) => { setMediaFolderId(e.target.value); setMediaFileIds([]); }}
                 className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40"
               >
                 <option value="">Selecione…</option>
@@ -431,25 +438,39 @@ function PostTweetPage() {
           )}
 
           {mediaMode === "same" && mediaFolderId && (
-            <div className="relative grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-44 overflow-y-auto">
-              {files.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setMediaFileId(f.id)}
-                  className={cn(
-                    "aspect-square rounded-lg overflow-hidden border-2 transition-colors",
-                    mediaFileId === f.id ? "border-brand" : "border-transparent hover:border-white/20",
-                  )}
-                >
-                  {f.signed_url ? (
-                    <img src={f.signed_url} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-white/[0.06]" />
-                  )}
-                </button>
-              ))}
-              {!files.length && <p className="col-span-full text-xs text-muted-foreground p-2">Pasta vazia.</p>}
+            <div className="relative">
+              <p className="text-[11px] text-muted-foreground mb-1.5">
+                Escolha até <b className="text-foreground">4 imagens</b> (clique pra adicionar/remover) — {mediaFileIds.length}/4 selecionada(s)
+              </p>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-44 overflow-y-auto">
+                {files.map((f) => {
+                  const pos = mediaFileIds.indexOf(f.id);
+                  const on = pos !== -1;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => togglePick(f.id)}
+                      className={cn(
+                        "relative aspect-square rounded-lg overflow-hidden border-2 transition-colors",
+                        on ? "border-brand" : "border-transparent hover:border-white/20",
+                      )}
+                    >
+                      {f.signed_url ? (
+                        <img src={f.signed_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-white/[0.06]" />
+                      )}
+                      {on && (
+                        <span className="absolute top-1 left-1 grid h-4 w-4 place-items-center rounded-full gradient-brand text-white text-[10px] font-semibold">
+                          {pos + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {!files.length && <p className="col-span-full text-xs text-muted-foreground p-2">Pasta vazia.</p>}
+              </div>
             </div>
           )}
         </div>
