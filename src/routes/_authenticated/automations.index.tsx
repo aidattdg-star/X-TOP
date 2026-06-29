@@ -39,6 +39,21 @@ function AutomationsPage() {
     qc.invalidateQueries({ queryKey: ["automation_flows"] });
   }
 
+  async function removeAll() {
+    const n = flows?.length ?? 0;
+    if (!n) return toast.info("Não há fluxos para excluir.");
+    if (!confirm(
+      `Excluir TODOS os ${n} fluxos?\n\nIsso remove monitores, agendamentos, campanhas, auto-replies e as tarefas pendentes deles. Suas CONTAS e MÍDIAS não são afetadas. Não dá pra desfazer.`,
+    )) return;
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return toast.error("Não autenticado");
+    const { error } = await supabase.from("automation_flows").delete().eq("user_id", u.user.id);
+    if (error) return toast.error(error.message);
+    toast.success(`${n} fluxo(s) excluído(s)`);
+    qc.invalidateQueries({ queryKey: ["automation_flows"] });
+    qc.invalidateQueries({ queryKey: ["monitoring_flows"] });
+  }
+
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <PageHeader
@@ -46,9 +61,20 @@ function AutomationsPage() {
         title="Fluxos de automação"
         description="Crie e gerencie fluxos visuais executados pelas suas contas do X."
         actions={
-          <Button asChild>
-            <Link to="/automations/builder"><Plus className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo fluxo</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {!!flows?.length && (
+              <Button
+                variant="outline"
+                onClick={removeAll}
+                className="border-destructive/40 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4 mr-2" strokeWidth={1.5} /> Excluir todos ({flows.length})
+              </Button>
+            )}
+            <Button asChild>
+              <Link to="/automations/builder"><Plus className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo fluxo</Link>
+            </Button>
+          </div>
         }
       />
 
