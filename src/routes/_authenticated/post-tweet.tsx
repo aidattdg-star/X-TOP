@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign, replyToTweetAccounts } from "@/lib/account-profile.functions";
 import { registerMediaFile } from "@/lib/media.functions";
-import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload, Reply } from "lucide-react";
+import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload, Reply, Play } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
   component: PostTweetPage,
@@ -18,9 +18,13 @@ export const Route = createFileRoute("/_authenticated/post-tweet")({
 type Account = { id: string; username: string; status: string | null; profile_picture_url: string | null; folder_id: string | null };
 type Folder = { id: string; name: string };
 type MediaFolder = { id: string; name: string };
-type MediaFile = { id: string; storage_path: string; signed_url: string | null; original_filename: string };
+type MediaFile = { id: string; storage_path: string; signed_url: string | null; original_filename: string; mime?: string | null };
 
 type PostResult = { username?: string; ok: boolean; url?: string; error?: string };
+
+function isVid(f?: { mime?: string | null; storage_path?: string } | null): boolean {
+  return !!(f?.mime?.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi)$/i.test(f?.storage_path ?? ""));
+}
 
 function PostTweetPage() {
   const qc = useQueryClient();
@@ -53,13 +57,21 @@ function PostTweetPage() {
   const [folderTab, setFolderTab] = useState<string>("__all__");
   const [mediaFolderId, setMediaFolderId] = useState("");
   const [mediaMode, setMediaMode] = useState<"none" | "random" | "same">("none");
-  const [mediaFileIds, setMediaFileIds] = useState<string[]>([]); // "mesma imagem" agora aceita até 4
-  const togglePick = (id: string) =>
+  const [mediaFileIds, setMediaFileIds] = useState<string[]>([]); // até 4 imagens OU 1 vídeo
+  const togglePick = (id: string) => {
+    const clickedVideo = isVid(files.find((x) => x.id === id));
     setMediaFileIds((s) => {
       if (s.includes(id)) return s.filter((x) => x !== id);
-      if (s.length >= 4) { toast.error("Máximo de 4 imagens por tweet."); return s; }
-      return [...s, id];
+      if (clickedVideo) {
+        toast.message("Vídeo vai sozinho no tweet (sem misturar com imagens).");
+        return [id];
+      }
+      const hasVideo = s.some((sid) => isVid(files.find((x) => x.id === sid)));
+      const base = hasVideo ? [] : s; // tinha vídeo? troca por imagens
+      if (base.length >= 4) { toast.error("Máximo de 4 imagens por tweet."); return base; }
+      return [...base, id];
     });
+  };
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, ok: 0 });
 
@@ -115,13 +127,13 @@ function PostTweetPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("media_files")
-        .select("id, storage_path, original_filename")
+        .select("id, storage_path, original_filename, mime_type")
         .eq("folder_id", mediaFolderId)
         .order("created_at", { ascending: false });
       return Promise.all(
         (data ?? []).map(async (f) => {
           const { data: signed } = await supabase.storage.from("media").createSignedUrl(f.storage_path, 3600);
-          return { ...f, signed_url: signed?.signedUrl ?? null } as MediaFile;
+          return { ...f, mime: (f as any).mime_type ?? null, signed_url: signed?.signedUrl ?? null } as MediaFile;
         }),
       );
     },
@@ -440,26 +452,38 @@ function PostTweetPage() {
           {mediaMode === "same" && mediaFolderId && (
             <div className="relative">
               <p className="text-[11px] text-muted-foreground mb-1.5">
-                Escolha até <b className="text-foreground">4 imagens</b> (clique pra adicionar/remover) — {mediaFileIds.length}/4 selecionada(s)
+                <b className="text-foreground">Até 4 imagens</b> ou <b className="text-foreground">1 vídeo</b> (clique pra adicionar/remover) — {mediaFileIds.length} selecionada(s)
               </p>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-44 overflow-y-auto">
                 {files.map((f) => {
                   const pos = mediaFileIds.indexOf(f.id);
                   const on = pos !== -1;
+                  const video = isVid(f);
                   return (
                     <button
                       key={f.id}
                       type="button"
                       onClick={() => togglePick(f.id)}
                       className={cn(
-                        "relative aspect-square rounded-lg overflow-hidden border-2 transition-colors",
+                        "relative aspect-square rounded-lg overflow-hidden border-2 transition-colors bg-white/[0.06]",
                         on ? "border-brand" : "border-transparent hover:border-white/20",
                       )}
                     >
-                      {f.signed_url ? (
+                      {video ? (
+                        f.signed_url ? (
+                          <video src={f.signed_url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                        ) : (
+                          <div className="w-full h-full" />
+                        )
+                      ) : f.signed_url ? (
                         <img src={f.signed_url} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-white/[0.06]" />
+                        <div className="w-full h-full" />
+                      )}
+                      {video && (
+                        <span className="absolute inset-0 grid place-items-center bg-black/25">
+                          <Play className="h-5 w-5 text-white drop-shadow" fill="white" />
+                        </span>
                       )}
                       {on && (
                         <span className="absolute top-1 left-1 grid h-4 w-4 place-items-center rounded-full gradient-brand text-white text-[10px] font-semibold">

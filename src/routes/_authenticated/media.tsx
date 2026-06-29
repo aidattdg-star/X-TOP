@@ -156,16 +156,18 @@ function MediaPage() {
 
       let ok = 0, fail = 0;
       for (const file of arr) {
-        if (!file.type.startsWith("image/")) {
-          toast.error(`${file.name}: só imagens`);
+        const isVid = file.type.startsWith("video/");
+        if (!file.type.startsWith("image/") && !isVid) {
+          toast.error(`${file.name}: só imagem ou vídeo`);
           fail++; continue;
         }
-        if (file.size > 8 * 1024 * 1024) {
-          toast.error(`${file.name}: máx 8MB`);
+        const maxMB = isVid ? 15 : 8;
+        if (file.size > maxMB * 1024 * 1024) {
+          toast.error(`${file.name}: máx ${maxMB}MB${isVid ? " (vídeo)" : ""}`);
           fail++; continue;
         }
         try {
-          const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+          const ext = file.name.split(".").pop()?.toLowerCase() || (isVid ? "mp4" : "jpg");
           const uuid = crypto.randomUUID();
           const path = `${userId}/${selectedFolderId}/${uuid}.${ext}`;
           console.log("[media] uploading", file.name, "->", path);
@@ -175,7 +177,9 @@ function MediaPage() {
           });
           if (upErr) { console.error("[media] storage error", upErr); throw new Error(upErr.message); }
 
-          const dims = await readImageDimensions(file).catch(() => ({ width: undefined, height: undefined }));
+          const dims = isVid
+            ? { width: undefined, height: undefined }
+            : await readImageDimensions(file).catch(() => ({ width: undefined, height: undefined }));
 
           await registerFn({
             data: {
@@ -283,7 +287,7 @@ function MediaPage() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept="image/*"
+                  accept="image/*,video/*"
                   className="hidden"
                   onChange={(e) => { handleUpload(e.target.files); e.target.value = ""; }}
                 />
@@ -306,12 +310,22 @@ function MediaPage() {
               {(files ?? []).map((file) => (
                 <div key={file.id} className="group relative border border-border rounded overflow-hidden bg-surface">
                   {file.signed_url ? (
-                    <img
-                      src={file.signed_url}
-                      alt={file.original_filename}
-                      className="w-full aspect-square object-cover"
-                      loading="lazy"
-                    />
+                    file.mime_type?.startsWith("video/") ? (
+                      <video
+                        src={file.signed_url}
+                        className="w-full aspect-square object-cover"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img
+                        src={file.signed_url}
+                        alt={file.original_filename}
+                        className="w-full aspect-square object-cover"
+                        loading="lazy"
+                      />
+                    )
                   ) : (
                     <div className="w-full aspect-square bg-accent" />
                   )}

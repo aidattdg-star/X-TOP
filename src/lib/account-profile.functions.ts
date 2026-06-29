@@ -18,6 +18,12 @@ async function downloadAsBase64(supabase: any, storagePath: string): Promise<str
   return btoa(binary);
 }
 
+async function downloadAsBuffer(supabase: any, storagePath: string): Promise<Uint8Array> {
+  const { data: blob, error } = await supabase.storage.from("media").download(storagePath);
+  if (error || !blob) throw new Error(`Falha ao baixar mídia: ${error?.message ?? "vazio"}`);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 /** Resolve qual mediaFile usar para cada conta, conforme `mode`. */
 async function resolveFilesPerAccount(
   supabase: any,
@@ -363,19 +369,23 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
     const withMedia = !!(data.folderId || data.mediaFileId || multiIds);
     if (!text && !withMedia) throw new Error("Escreva o texto ou escolha uma mídia.");
 
-    // Modo "várias imagens fixas": carrega os arquivos (na ordem escolhida).
-    let multiFiles: { storage_path: string }[] | null = null;
+    // Modo "várias imagens/vídeo": carrega os arquivos (na ordem escolhida).
+    let multiFiles: { storage_path: string; mime: string }[] | null = null;
+    let isVideo = false;
     if (multiIds) {
       const { data: files } = await context.supabase
         .from("media_files")
-        .select("id, storage_path, user_id")
+        .select("id, storage_path, user_id, mime_type")
         .in("id", multiIds);
       const byId = new Map((files ?? []).map((f: any) => [f.id, f]));
       multiFiles = multiIds.map((id) => {
         const f = byId.get(id);
         if (!f || f.user_id !== context.userId) throw new Error("Mídia não encontrada");
-        return { storage_path: f.storage_path };
+        return { storage_path: f.storage_path, mime: String(f.mime_type ?? "") };
       });
+      isVideo = multiFiles.some((f) => f.mime.startsWith("video/"));
+      if (isVideo && multiFiles.length !== 1)
+        throw new Error("Vídeo deve ser postado sozinho (1 vídeo por tweet, sem misturar com imagens).");
     }
 
     const mediaMap = withMedia && !multiFiles
@@ -386,7 +396,7 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
         })
       : null;
 
-    const { uploadTweetMedia, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { uploadTweetMedia, uploadTweetVideo, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
 
     const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
     const posted: Array<{ accountId: string; restId: string }> = [];
@@ -407,11 +417,17 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
 
         let mediaIds: string[] | undefined;
         if (multiFiles) {
-          // sobe cada imagem por esta conta (media_id é por sessão) e mantém a ordem
           mediaIds = [];
-          for (const f of multiFiles) {
-            const b64 = await downloadAsBase64(context.supabase, f.storage_path);
-            mediaIds.push(await uploadTweetMedia(tokens, b64, dispatcher));
+          if (isVideo) {
+            // 1 vídeo: upload em pedaços + espera processar (por esta conta).
+            const bytes = await downloadAsBuffer(context.supabase, multiFiles[0].storage_path);
+            mediaIds.push(await uploadTweetVideo(tokens, bytes, multiFiles[0].mime || "video/mp4", dispatcher));
+          } else {
+            // até 4 imagens (media_id é por sessão) — mantém a ordem
+            for (const f of multiFiles) {
+              const b64 = await downloadAsBase64(context.supabase, f.storage_path);
+              mediaIds.push(await uploadTweetMedia(tokens, b64, dispatcher));
+            }
           }
         } else if (mediaMap) {
           const file = mediaMap.get(accountId)!;

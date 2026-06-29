@@ -356,6 +356,72 @@ export async function uploadTweetMedia(
   return String(id);
 }
 
+/** Sobe um VÍDEO pro X via upload em pedaços (INIT→APPEND→FINALIZE→STATUS).
+ *  `bytes` = conteúdo bruto do vídeo. Espera o X processar (com teto de tempo). */
+export async function uploadTweetVideo(
+  tokens: AuthTokens,
+  bytes: Uint8Array,
+  mediaType: string,
+  d?: Dispatcher,
+): Promise<string> {
+  const url = "https://upload.twitter.com/1.1/media/upload.json";
+  const sigPath = "/1.1/media/upload.json";
+  const total = bytes.length;
+  const post = async (body: string) => {
+    const h = await headers(tokens, "POST", sigPath);
+    h["content-type"] = "application/x-www-form-urlencoded";
+    const res = await doFetch(url, { method: "POST", headers: h, body }, d);
+    applySetCookies(tokens, res);
+    const text = await res.text();
+    let json: any; try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return { res, text, json };
+  };
+
+  // INIT
+  let r = await post(new URLSearchParams({
+    command: "INIT", total_bytes: String(total), media_type: mediaType, media_category: "tweet_video",
+  }).toString());
+  if (!r.res.ok || r.json?.errors) throw xApiError("X video INIT", r.res.status, r.text, r.json);
+  const mediaId = String(r.json?.media_id_string ?? "");
+  if (!mediaId) throw new Error(`INIT de vídeo falhou: ${r.text.slice(0, 160)}`);
+
+  // APPEND em pedaços de ~2MB
+  const CHUNK = 2 * 1024 * 1024;
+  let seg = 0;
+  for (let off = 0; off < total; off += CHUNK) {
+    const slice = bytes.subarray(off, Math.min(off + CHUNK, total));
+    let bin = "";
+    const sub = 0x8000;
+    for (let i = 0; i < slice.length; i += sub) bin += String.fromCharCode(...slice.subarray(i, Math.min(i + sub, slice.length)));
+    r = await post(new URLSearchParams({
+      command: "APPEND", media_id: mediaId, segment_index: String(seg), media_data: btoa(bin),
+    }).toString());
+    if (!r.res.ok) throw xApiError("X video APPEND", r.res.status, r.text, r.json);
+    seg++;
+  }
+
+  // FINALIZE
+  r = await post(new URLSearchParams({ command: "FINALIZE", media_id: mediaId }).toString());
+  if (!r.res.ok || r.json?.errors) throw xApiError("X video FINALIZE", r.res.status, r.text, r.json);
+
+  // STATUS poll — espera processar (teto de ~25s pra não estourar a função)
+  let info = r.json?.processing_info;
+  let waited = 0;
+  while (info && (info.state === "pending" || info.state === "in_progress")) {
+    const wait = Math.min(Math.max(Number(info.check_after_secs) || 2, 1), 5);
+    if (waited + wait > 25) throw new Error("Vídeo demorou demais pra processar no X — use um vídeo menor/mais curto.");
+    await new Promise((res) => setTimeout(res, wait * 1000));
+    waited += wait;
+    const h = await headers(tokens, "GET", sigPath);
+    const res = await doFetch(`${url}?command=STATUS&media_id=${mediaId}`, { method: "GET", headers: h }, d);
+    applySetCookies(tokens, res);
+    const text = await res.text();
+    try { info = JSON.parse(text)?.processing_info; } catch { info = null; }
+    if (info?.state === "failed") throw new Error(`X rejeitou o vídeo: ${JSON.stringify(info).slice(0, 160)}`);
+  }
+  return mediaId;
+}
+
 export async function postTweet(tokens: AuthTokens, text: string, d?: Dispatcher, mediaIds?: string[]) {
   const media_entities = (mediaIds ?? []).map((id) => ({ media_id: id, tagged_users: [] }));
   const json = await gqlPost("CreateTweet", tokens, {
