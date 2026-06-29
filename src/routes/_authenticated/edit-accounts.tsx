@@ -289,7 +289,7 @@ function NameBioCard({
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
             placeholder="Deixe vazio para não alterar"
-            className="w-full mt-1 px-3 py-2 bg-surface border border-border rounded text-sm"
+            className="w-full mt-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
           />
           <p className="text-[10px] text-muted-foreground mt-1">{name.length}/50</p>
         </div>
@@ -301,14 +301,14 @@ function NameBioCard({
             maxLength={160}
             rows={3}
             placeholder="Deixe vazio para não alterar"
-            className="w-full mt-1 px-3 py-2 bg-surface border border-border rounded text-sm resize-none"
+            className="w-full mt-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors resize-none"
           />
           <p className="text-[10px] text-muted-foreground mt-1">{bio.length}/160</p>
         </div>
         <button
           onClick={submit}
           disabled={busy}
-          className="px-4 py-2 text-xs bg-foreground text-background rounded disabled:opacity-50 inline-flex items-center gap-2"
+          className="px-4 py-2.5 text-xs font-medium rounded-lg gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
         >
           {busy && <Loader2 className="w-3 h-3 animate-spin" />}
           Aplicar nome/bio em {count} conta(s)
@@ -410,7 +410,7 @@ function MediaApplyCard({
             <select
               value={folderId}
               onChange={(e) => { setFolderId(e.target.value); setMediaFileId(""); }}
-              className="w-full mt-1 px-3 py-2 bg-surface border border-border rounded text-sm"
+              className="w-full mt-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
             >
               <option value="">Selecione...</option>
               {folders.map((f) => (
@@ -428,16 +428,16 @@ function MediaApplyCard({
             <div className="mt-1 flex gap-2">
               <button
                 onClick={() => setMode("random")}
-                className={`flex-1 px-3 py-2 text-xs rounded border ${
-                  mode === "random" ? "bg-foreground text-background border-foreground" : "border-border"
+                className={`flex-1 px-3 py-2.5 text-xs rounded-lg border transition-colors ${
+                  mode === "random" ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Aleatória por conta
               </button>
               <button
                 onClick={() => setMode("same")}
-                className={`flex-1 px-3 py-2 text-xs rounded border ${
-                  mode === "same" ? "bg-foreground text-background border-foreground" : "border-border"
+                className={`flex-1 px-3 py-2.5 text-xs rounded-lg border transition-colors ${
+                  mode === "same" ? "gradient-brand text-white border-transparent" : "border-white/10 text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Mesma imagem
@@ -454,8 +454,8 @@ function MediaApplyCard({
                 <button
                   key={f.id}
                   onClick={() => setMediaFileId(f.id)}
-                  className={`aspect-square rounded overflow-hidden border-2 ${
-                    mediaFileId === f.id ? "border-foreground" : "border-transparent"
+                  className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
+                    mediaFileId === f.id ? "border-brand" : "border-transparent hover:border-white/20"
                   }`}
                 >
                   {f.signed_url ? (
@@ -475,7 +475,7 @@ function MediaApplyCard({
         <button
           onClick={submit}
           disabled={busy}
-          className="px-4 py-2 text-xs bg-foreground text-background rounded disabled:opacity-50 inline-flex items-center gap-2"
+          className="px-4 py-2.5 text-xs font-medium rounded-lg gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
         >
           {busy && <Loader2 className="w-3 h-3 animate-spin" />}
           Aplicar em {accountIds.length} conta(s)
@@ -538,18 +538,18 @@ function UsernameCard({
             (pode falhar se já estiver em uso, pode trigar flag em contas novas).
           </p>
           <div className="flex gap-2">
-            <span className="px-3 py-2 bg-surface border border-border rounded text-xs text-muted-foreground">@</span>
+            <span className="px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-xs text-muted-foreground">@</span>
             <input
               value={newU}
               onChange={(e) => setNewU(e.target.value.replace(/^@/, ""))}
               maxLength={15}
               placeholder="novo_username"
-              className="flex-1 px-3 py-2 bg-surface border border-border rounded text-sm"
+              className="flex-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
             />
             <button
               onClick={submit}
               disabled={busy || !newU.trim()}
-              className="px-4 py-2 text-xs bg-amber-600 text-white rounded disabled:opacity-50 inline-flex items-center gap-2"
+              className="px-4 py-2.5 text-xs font-medium bg-amber-500/90 hover:bg-amber-500 text-white rounded-lg disabled:opacity-50 inline-flex items-center gap-2 transition-colors"
             >
               {busy && <Loader2 className="w-3 h-3 animate-spin" />}
               Trocar @
