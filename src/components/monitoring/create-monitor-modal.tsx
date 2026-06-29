@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Send, Repeat2, MessageCircle, Zap, Search, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -161,7 +160,7 @@ export function CreateMonitorModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-light text-xl">Novo monitor</DialogTitle>
           <DialogDescription>
@@ -183,7 +182,7 @@ export function CreateMonitorModal({
               value={targets}
               onChange={(e) => setTargets(e.target.value)}
               placeholder="@usuario1  @usuario2 …"
-              className="font-mono text-xs"
+              className="font-mono text-xs bg-white/[0.04] border-white/10 focus-visible:border-brand/40 resize-none"
             />
             {handles.length > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -206,13 +205,15 @@ export function CreateMonitorModal({
                     type="button"
                     onClick={() => setAction(a.value)}
                     className={cn(
-                      "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs transition-all",
+                      "flex flex-col items-center gap-2 rounded-xl border p-3.5 text-xs font-medium transition-all",
                       on
-                        ? "border-brand/50 bg-accent text-foreground"
-                        : "border-border text-muted-foreground hover:text-foreground hover:border-brand/30",
+                        ? "border-brand/50 bg-brand/10 text-foreground shadow-[0_0_0_1px_oklch(0.66_0.2_285_/_0.25)]"
+                        : "border-white/10 text-muted-foreground hover:text-foreground hover:border-brand/30 hover:bg-white/[0.03]",
                     )}
                   >
-                    <Icon className={cn("h-4 w-4", on && "text-brand")} strokeWidth={1.75} />
+                    <span className={cn("grid h-8 w-8 place-items-center rounded-lg border border-white/10", on ? "gradient-brand text-white" : "bg-white/[0.05] text-muted-foreground")}>
+                      <Icon className="h-4 w-4" strokeWidth={1.75} />
+                    </span>
                     {a.label}
                   </button>
                 );
@@ -231,6 +232,7 @@ export function CreateMonitorModal({
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Texto… variações com {a|b} e |||  para evitar duplicidade"
+                className="bg-white/[0.04] border-white/10 focus-visible:border-brand/40 resize-none"
               />
             </div>
           )}
@@ -239,38 +241,52 @@ export function CreateMonitorModal({
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">
               Intervalo de checagem (humano)
             </Label>
-            <label className="flex items-center gap-2 cursor-pointer w-fit rounded-lg border border-border bg-muted/30 px-3 py-1.5">
-              <Checkbox checked={testMode} onCheckedChange={(v) => setTestMode(!!v)} />
-              <Zap className="h-3.5 w-3.5 text-brand" />
-              <span className="text-xs font-medium">Modo teste (checa a cada ~1 min)</span>
-            </label>
+            <button
+              type="button"
+              onClick={() => setTestMode(!testMode)}
+              className={cn(
+                "flex items-center gap-2.5 w-full rounded-xl border px-3 py-2.5 transition-colors text-left",
+                testMode ? "border-brand/50 bg-brand/10" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+              )}
+            >
+              <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-lg", testMode ? "gradient-brand text-white" : "bg-white/[0.06] text-muted-foreground")}>
+                <Zap className="h-3.5 w-3.5" />
+              </span>
+              <span className="flex-1">
+                <span className="block text-xs font-medium text-foreground">Modo teste</span>
+                <span className="block text-[11px] text-muted-foreground">checa a cada ~1 min (pra ver rápido)</span>
+              </span>
+              <span className={cn("h-4 w-4 rounded-full border-2 grid place-items-center", testMode ? "border-brand" : "border-white/20")}>
+                {testMode && <span className="h-2 w-2 rounded-full gradient-brand" />}
+              </span>
+            </button>
             {!testMode && (
-              <div className="flex items-center gap-2">
-                <div>
-                  <span className="text-[10px] text-muted-foreground">mín</span>
+              <div className="flex items-end gap-2 pt-1">
+                <div className="space-y-1">
+                  <span className="block text-[10px] text-muted-foreground">mín</span>
                   <Input
                     type="number"
                     min={1}
                     max={240}
                     value={intervalMin}
                     onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 1))}
-                    className="h-9 w-20"
+                    className="h-9 w-20 bg-white/[0.04] border-white/10 focus-visible:border-brand/40 text-center"
                   />
                 </div>
-                <span className="text-muted-foreground pt-4">a</span>
-                <div>
-                  <span className="text-[10px] text-muted-foreground">máx</span>
+                <span className="text-muted-foreground pb-2">a</span>
+                <div className="space-y-1">
+                  <span className="block text-[10px] text-muted-foreground">máx</span>
                   <Input
                     type="number"
                     min={1}
                     max={240}
                     value={intervalMax}
                     onChange={(e) => setIntervalMax(Math.max(1, Number(e.target.value) || 1))}
-                    className="h-9 w-20"
+                    className="h-9 w-20 bg-white/[0.04] border-white/10 focus-visible:border-brand/40 text-center"
                   />
                 </div>
-                <span className="text-xs text-muted-foreground pt-4">
-                  minutos (sorteia um valor quebrado a cada ciclo)
+                <span className="text-xs text-muted-foreground pb-2">
+                  minutos (valor quebrado a cada ciclo)
                 </span>
               </div>
             )}
@@ -361,7 +377,7 @@ export function CreateMonitorModal({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving}>
+          <Button type="button" onClick={handleSave} disabled={saving} className="gradient-brand text-white hover:opacity-90 border-0">
             {saving ? "Criando…" : `Criar ${handles.length || ""} monitor(es)`}
           </Button>
         </DialogFooter>
