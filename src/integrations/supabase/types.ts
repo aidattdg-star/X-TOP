@@ -519,8 +519,10 @@ export type Database = {
           folder_id: string | null
           id: string
           last_used_at: string | null
+          like_count: number
           limited_at: string | null
           profile_picture_url: string | null
+          rt_count: number
           proxy_id: string | null
           status: Database["public"]["Enums"]["twitter_account_status"]
           updated_at: string
@@ -536,8 +538,10 @@ export type Database = {
           folder_id?: string | null
           id?: string
           last_used_at?: string | null
+          like_count?: number
           limited_at?: string | null
           profile_picture_url?: string | null
+          rt_count?: number
           proxy_id?: string | null
           status?: Database["public"]["Enums"]["twitter_account_status"]
           updated_at?: string
@@ -553,8 +557,10 @@ export type Database = {
           folder_id?: string | null
           id?: string
           last_used_at?: string | null
+          like_count?: number
           limited_at?: string | null
           profile_picture_url?: string | null
+          rt_count?: number
           proxy_id?: string | null
           status?: Database["public"]["Enums"]["twitter_account_status"]
           updated_at?: string

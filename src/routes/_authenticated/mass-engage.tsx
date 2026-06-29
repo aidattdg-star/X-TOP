@@ -228,35 +228,52 @@ function MassEnagePage() {
         )}
       </section>
 
-      {/* Contas em refresh (cooldown pós-RT/Like) — não selecionáveis */}
-      {coolingAccounts.length > 0 && (
-        <section className="border border-amber-500/20 bg-amber-500/[0.04] rounded-lg p-5">
-          <div className="flex flex-wrap items-center gap-2 mb-3">
+      {/* Disponibilidade: Disponíveis vs Em refresh (sempre visível) */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Disponíveis */}
+        <div className="border border-emerald-500/20 bg-emerald-500/[0.04] rounded-lg p-5">
+          <div className="flex items-center gap-2">
+            <Users2 className="h-4 w-4 text-emerald-400" />
+            <h2 className="text-sm font-medium">Contas disponíveis</h2>
+            <span className="grid h-5 min-w-[20px] px-1.5 place-items-center rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-semibold tabular-nums">
+              {activeAccounts.length}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+            Cada conta pode fazer <b className="text-foreground">3 RT + 3 like</b>; ao completar a cota
+            ela entra em refresh de 1h automaticamente. Só estas aparecem para selecionar abaixo.
+          </p>
+        </div>
+
+        {/* Em refresh */}
+        <div className="border border-amber-500/20 bg-amber-500/[0.04] rounded-lg p-5">
+          <div className="flex items-center gap-2">
             <Timer className="h-4 w-4 text-amber-400" />
-            <h2 className="text-sm font-medium">Contas em refresh</h2>
+            <h2 className="text-sm font-medium">Em refresh</h2>
             <span className="grid h-5 min-w-[20px] px-1.5 place-items-center rounded-full bg-amber-500/20 text-amber-300 text-[11px] font-semibold tabular-nums">
               {coolingAccounts.length}
             </span>
-            <span className="text-xs text-muted-foreground">
-              descansando 1h após RT/Like — não dá pra selecionar até liberar
-            </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-44 overflow-y-auto">
-            {coolingAccounts.map((a) => {
-              const mins = Math.max(1, Math.ceil((Date.parse(a.cooldown_until!) - Date.now()) / 60000));
-              return (
-                <div
-                  key={a.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 opacity-70"
-                >
-                  <span className="text-xs text-muted-foreground truncate">@{a.username}</span>
-                  <span className="text-[10px] text-amber-300 tabular-nums whitespace-nowrap">{mins}min</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+          {coolingAccounts.length === 0 ? (
+            <p className="mt-2 text-xs text-muted-foreground">Nenhuma conta em refresh agora.</p>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+              {coolingAccounts.map((a) => {
+                const mins = Math.max(1, Math.ceil((Date.parse(a.cooldown_until!) - Date.now()) / 60000));
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 opacity-80"
+                  >
+                    <span className="text-xs text-muted-foreground truncate">@{a.username}</span>
+                    <span className="text-[10px] text-amber-300 tabular-nums whitespace-nowrap">{mins}min</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Blocos manuais */}
       <section className="border rounded-lg p-5 space-y-4">

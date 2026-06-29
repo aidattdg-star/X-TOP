@@ -454,7 +454,7 @@ async function runTask(admin: any, task: any) {
       case "action.retweet": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
         await retweet(tokens, id, dispatcher);
-        await setActionCooldown(admin, acc.id);
+        await bumpAndMaybeCooldown(admin, acc.id, "retweet");
         break;
       }
       case "action.comment": {
@@ -477,10 +477,10 @@ async function runTask(admin: any, task: any) {
         const type = (config.action_type as string) || "like";
         if (type === "like") {
           await likeTweet(tokens, id, dispatcher);
-          await setActionCooldown(admin, acc.id);
+          await bumpAndMaybeCooldown(admin, acc.id, "like");
         } else if (type === "retweet") {
           await retweet(tokens, id, dispatcher);
-          await setActionCooldown(admin, acc.id);
+          await bumpAndMaybeCooldown(admin, acc.id, "retweet");
         } else throw new Error(`mass_engage tipo '${type}' não implementado`);
         break;
       }
@@ -786,22 +786,38 @@ async function markAccountLimited(admin: any, accountId?: string | null): Promis
   }
 }
 
-// Após RT ou Like, a conta entra em "refresh" (cooldown) por 1h: não é reusada
-// pra novos disparos até o tempo passar (humaniza e evita spam). Comentário NÃO
-// dispara cooldown (fica normal).
-const RT_COOLDOWN_MIN = 60;
-async function setActionCooldown(admin: any, accountId?: string | null): Promise<void> {
+// Cota antes do refresh: cada conta pode fazer RT_QUOTA retweets + LIKE_QUOTA
+// likes. Ao atingir 3 RT E 3 like, entra em "refresh" (cooldown) de 1h e os
+// contadores zeram. Comentário NÃO conta nem dispara cooldown (fica normal).
+const COOLDOWN_MIN = 60;
+const RT_QUOTA = 3;
+const LIKE_QUOTA = 3;
+async function bumpAndMaybeCooldown(
+  admin: any,
+  accountId: string | null | undefined,
+  kind: "retweet" | "like",
+): Promise<void> {
   if (!accountId) return;
   try {
-    await admin
-      .from("twitter_accounts")
-      .update({
-        cooldown_until: new Date(Date.now() + RT_COOLDOWN_MIN * 60_000).toISOString(),
-        last_used_at: new Date().toISOString(),
-      })
-      .eq("id", accountId);
+    const { data: a } = await admin
+      .from("twitter_accounts").select("rt_count, like_count").eq("id", accountId).maybeSingle();
+    let rt = Number(a?.rt_count ?? 0);
+    let lk = Number(a?.like_count ?? 0);
+    if (kind === "retweet") rt++; else lk++;
+    const now = new Date().toISOString();
+    if (rt >= RT_QUOTA && lk >= LIKE_QUOTA) {
+      // cota cheia → refresh de 1h e zera os contadores
+      await admin.from("twitter_accounts").update({
+        cooldown_until: new Date(Date.now() + COOLDOWN_MIN * 60_000).toISOString(),
+        rt_count: 0, like_count: 0, last_used_at: now,
+      }).eq("id", accountId);
+    } else {
+      await admin.from("twitter_accounts").update({
+        rt_count: rt, like_count: lk, last_used_at: now,
+      }).eq("id", accountId);
+    }
   } catch {
-    /* tolera */
+    /* colunas rt_count/like_count podem não existir até rodar o SQL — tolera */
   }
 }
 
