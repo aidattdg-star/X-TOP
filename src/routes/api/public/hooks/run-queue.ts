@@ -304,7 +304,7 @@ async function handle(): Promise<Response> {
           .from("execution_queue")
           .update({ status: "completed", last_error: null, updated_at: new Date().toISOString() })
           .eq("id", task.id);
-        await log(supabaseAdmin, task.user_id, task.flow_id, "info", `OK: ${task.action_type}`, task.twitter_account_id);
+        // cada ação já loga seu próprio sucesso claro (com link); aqui só conta.
         result.succeeded++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -567,6 +567,9 @@ async function runTask(admin: any, task: any) {
         }
         await retweet(tokens, id, dispatcher);
         await bumpAndMaybeCooldown(admin, acc.id, "retweet");
+        await log(admin, task.user_id, task.flow_id, "info",
+          `🔁 Retweet por @${acc.username}${monitoredHandle ? ` no tweet de @${monitoredHandle}` : ""}: https://x.com/i/status/${id}`,
+          task.twitter_account_id);
         break;
       }
       case "action.comment": {
@@ -581,12 +584,15 @@ async function runTask(admin: any, task: any) {
         if (config.anti_duplicate !== false) {
           text = humanizeShortContent(text, `${task.id}:${acc.username}:comment`);
         }
-        await runWithDuplicateRetry(
+        const cr = await runWithDuplicateRetry(
           (nextText) => commentReply(tokens, id, nextText, dispatcher),
           text,
           config.anti_duplicate !== false,
           `${task.id}:${acc.username}:comment`,
         );
+        await log(admin, task.user_id, task.flow_id, "info",
+          `💬 Comentário publicado por @${acc.username}${monitoredHandle ? ` no tweet de @${monitoredHandle}` : ""}: https://x.com/${acc.username}/status/${(cr as any)?.rest_id ?? id}`,
+          task.twitter_account_id);
         break;
       }
       case "action.mass_engage": {
@@ -595,9 +601,13 @@ async function runTask(admin: any, task: any) {
         if (type === "like") {
           await likeTweet(tokens, id, dispatcher);
           await bumpAndMaybeCooldown(admin, acc.id, "like");
+          await log(admin, task.user_id, task.flow_id, "info",
+            `❤️ Like por @${acc.username}: https://x.com/i/status/${id}`, task.twitter_account_id);
         } else if (type === "retweet") {
           await retweet(tokens, id, dispatcher);
           await bumpAndMaybeCooldown(admin, acc.id, "retweet");
+          await log(admin, task.user_id, task.flow_id, "info",
+            `🔁 Retweet por @${acc.username}: https://x.com/i/status/${id}`, task.twitter_account_id);
         } else throw new Error(`mass_engage tipo '${type}' não implementado`);
         break;
       }
