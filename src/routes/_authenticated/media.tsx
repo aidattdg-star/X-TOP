@@ -3,12 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Plus, Upload, Trash2, FolderPlus, ImagePlus } from "lucide-react";
+import { Plus, Upload, Trash2, FolderPlus, ImagePlus, Pencil, Copy, ArrowLeftRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   ensureDefaultFolders,
   createMediaFolder,
   deleteMediaFolder,
+  updateMediaFolder,
+  duplicateMediaFolder,
   registerMediaFile,
   deleteMediaFile,
 } from "@/lib/media.functions";
@@ -47,6 +49,8 @@ function MediaPage() {
   const ensureFn = useServerFn(ensureDefaultFolders);
   const createFolderFn = useServerFn(createMediaFolder);
   const deleteFolderFn = useServerFn(deleteMediaFolder);
+  const updateFolderFn = useServerFn(updateMediaFolder);
+  const duplicateFolderFn = useServerFn(duplicateMediaFolder);
   const registerFn = useServerFn(registerMediaFile);
   const deleteFileFn = useServerFn(deleteMediaFile);
 
@@ -124,6 +128,24 @@ function MediaPage() {
       setSelectedFolderId(null);
       qc.invalidateQueries({ queryKey: ["media_folders"] });
     },
+  });
+
+  const updateFolder = useMutation({
+    mutationFn: async (v: { id: string; name?: string; category?: Folder["category"] }) => updateFolderFn({ data: v }),
+    onSuccess: () => {
+      toast.success("Pasta atualizada");
+      qc.invalidateQueries({ queryKey: ["media_folders"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+  });
+
+  const duplicateFolder = useMutation({
+    mutationFn: async (id: string) => duplicateFolderFn({ data: { id } }),
+    onSuccess: (r: any) => {
+      toast.success(`Pasta duplicada (${r?.copied ?? 0}/${r?.total ?? 0} arquivo(s))`);
+      qc.invalidateQueries({ queryKey: ["media_folders"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
   });
 
   const removeFile = useMutation({
@@ -241,16 +263,51 @@ function MediaPage() {
                   }`}
                   onClick={() => setSelectedFolderId(f.id)}
                 >
-                  <span className="truncate">{f.name}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`Excluir pasta "${f.name}" e todos os arquivos?`)) removeFolder.mutate(f.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-destructive"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
+                  <span className="truncate flex-1">{f.name}</span>
+                  <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0 ml-1">
+                    <button
+                      title="Renomear"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const name = prompt("Novo nome da pasta:", f.name)?.trim();
+                        if (name && name !== f.name) updateFolder.mutate({ id: f.id, name });
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      title={`Mover para "${CATEGORY_LABEL[f.category === "profile_picture" ? "tweet_media" : "profile_picture"]}"`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const to: Folder["category"] = f.category === "profile_picture" ? "tweet_media" : "profile_picture";
+                        updateFolder.mutate({ id: f.id, category: to });
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <ArrowLeftRight className="w-3 h-3" />
+                    </button>
+                    <button
+                      title="Duplicar (copia os arquivos)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Duplicar a pasta "${f.name}" com todos os arquivos?`)) duplicateFolder.mutate(f.id);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                    <button
+                      title="Excluir"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Excluir pasta "${f.name}" e todos os arquivos?`)) removeFolder.mutate(f.id);
+                      }}
+                      className="text-destructive"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>

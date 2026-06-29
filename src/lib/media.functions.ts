@@ -61,6 +61,67 @@ export const createMediaFolder = createServerFn({ method: "POST" })
     return row;
   });
 
+/** Renomeia e/ou move a pasta (troca de categoria/seção). */
+export const updateMediaFolder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string; name?: string; category?: "profile_picture" | "tweet_media" }) =>
+    z.object({
+      id: z.string().uuid(),
+      name: z.string().trim().min(1).max(60).optional(),
+      category: MediaCategory.optional(),
+    }).refine((v) => v.name !== undefined || v.category !== undefined, { message: "Nada para atualizar" }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.category !== undefined) patch.category = data.category;
+    const { error } = await context.supabase
+      .from("media_folders").update(patch as never).eq("id", data.id).eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Duplica a pasta + copia todos os arquivos (cópia no storage). */
+export const duplicateMediaFolder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: src } = await context.supabase
+      .from("media_folders").select("id, name, category, user_id").eq("id", data.id).maybeSingle();
+    if (!src || src.user_id !== context.userId) throw new Error("Pasta não encontrada");
+
+    const { data: dst, error: fe } = await context.supabase
+      .from("media_folders")
+      .insert({ user_id: context.userId, name: `${src.name} (cópia)`, category: src.category })
+      .select("id").single();
+    if (fe || !dst) throw new Error(fe?.message ?? "Falha ao criar a pasta");
+
+    const { data: files } = await context.supabase
+      .from("media_files")
+      .select("storage_path, original_filename, mime_type, size_bytes, width, height")
+      .eq("folder_id", src.id);
+
+    let copied = 0;
+    for (const f of files ?? []) {
+      const ext = (f.storage_path.split(".").pop() || "jpg").toLowerCase();
+      const newPath = `${context.userId}/${dst.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: cpErr } = await context.supabase.storage.from("media").copy(f.storage_path, newPath);
+      if (cpErr) continue;
+      const { error: insErr } = await context.supabase.from("media_files").insert({
+        user_id: context.userId,
+        folder_id: dst.id,
+        storage_path: newPath,
+        original_filename: f.original_filename,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        width: f.width,
+        height: f.height,
+      });
+      if (!insErr) copied++;
+    }
+    return { ok: true, folderId: dst.id, copied, total: (files ?? []).length };
+  });
+
 export const deleteMediaFolder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { id: string }) => z.object({ id: z.string().uuid() }).parse(input))
