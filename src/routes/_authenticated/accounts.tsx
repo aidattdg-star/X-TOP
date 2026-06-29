@@ -9,7 +9,7 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
@@ -235,19 +235,20 @@ function AccountsPage() {
           <span className="text-xs text-muted-foreground">{accounts?.length ?? 0} contas</span>
         </div>
 
-        {/* VISÃO DE PASTAS (cards) — padrão, pra não empilhar todas as contas */}
+        {/* VISÃO DE PASTAS (cards) — padrão, pra não empilhar todas as contas.
+            Contas suspensas (caídas) saem das contagens normais e vão pro card "Suspensas". */}
         {accounts && accounts.length > 0 && folderFilter === null && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <FolderCard
               label="Todas as contas"
-              count={accounts.length}
+              count={accounts.filter((a) => !isSuspended(a)).length}
               onClick={() => setFolderFilter("__all__")}
               all
             />
-            {accounts.some((a) => !(a as any).folder_id) && (
+            {accounts.some((a) => !isSuspended(a) && !(a as any).folder_id) && (
               <FolderCard
                 label="Sem pasta"
-                count={accounts.filter((a) => !(a as any).folder_id).length}
+                count={accounts.filter((a) => !isSuspended(a) && !(a as any).folder_id).length}
                 onClick={() => setFolderFilter("__none__")}
               />
             )}
@@ -255,11 +256,19 @@ function AccountsPage() {
               <FolderCard
                 key={f.id}
                 label={f.name}
-                count={accounts.filter((a) => (a as any).folder_id === f.id).length}
+                count={accounts.filter((a) => !isSuspended(a) && (a as any).folder_id === f.id).length}
                 onClick={() => setFolderFilter(f.id)}
                 onDelete={() => deleteFolder(f.id, f.name)}
               />
             ))}
+            {accounts.some(isSuspended) && (
+              <FolderCard
+                label="Suspensas"
+                count={accounts.filter(isSuspended).length}
+                onClick={() => setFolderFilter("__banned__")}
+                suspended
+              />
+            )}
           </div>
         )}
 
@@ -272,10 +281,10 @@ function AccountsPage() {
             >
               <ChevronLeft className="h-3.5 w-3.5" /> Pastas
             </button>
-            <FolderPill label="Todas" count={accounts.length} active={folderFilter === "__all__"} onClick={() => setFolderFilter("__all__")} />
+            <FolderPill label="Todas" count={accounts.filter((a) => !isSuspended(a)).length} active={folderFilter === "__all__"} onClick={() => setFolderFilter("__all__")} />
             <FolderPill
               label="Sem pasta"
-              count={accounts.filter((a) => !(a as any).folder_id).length}
+              count={accounts.filter((a) => !isSuspended(a) && !(a as any).folder_id).length}
               active={folderFilter === "__none__"}
               onClick={() => setFolderFilter("__none__")}
             />
@@ -283,11 +292,19 @@ function AccountsPage() {
               <FolderPill
                 key={f.id}
                 label={f.name}
-                count={accounts.filter((a) => (a as any).folder_id === f.id).length}
+                count={accounts.filter((a) => !isSuspended(a) && (a as any).folder_id === f.id).length}
                 active={folderFilter === f.id}
                 onClick={() => setFolderFilter(f.id)}
               />
             ))}
+            {accounts.some(isSuspended) && (
+              <FolderPill
+                label="Suspensas"
+                count={accounts.filter(isSuspended).length}
+                active={folderFilter === "__banned__"}
+                onClick={() => setFolderFilter("__banned__")}
+              />
+            )}
           </div>
         )}
 
@@ -303,11 +320,15 @@ function AccountsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts
             ?.filter((acc) =>
-              folderFilter === "__all__"
-                ? true
-                : folderFilter === "__none__"
-                  ? !(acc as any).folder_id
-                  : (acc as any).folder_id === folderFilter,
+              folderFilter === "__banned__"
+                ? isSuspended(acc)
+                : isSuspended(acc)
+                  ? false
+                  : folderFilter === "__all__"
+                    ? true
+                    : folderFilter === "__none__"
+                      ? !(acc as any).folder_id
+                      : (acc as any).folder_id === folderFilter,
             )
             .map((acc) => (
             <div key={acc.id} className="border border-border bg-surface rounded-lg p-5">
@@ -616,27 +637,41 @@ function QualityBadge({ quality, latency, fails }: { quality?: string | null; la
   );
 }
 
+function isSuspended(a: { status?: string | null }): boolean {
+  return a?.status === "banned";
+}
+
 function FolderCard({
   label,
   count,
   onClick,
   onDelete,
   all,
+  suspended,
 }: {
   label: string;
   count: number;
   onClick: () => void;
   onDelete?: () => void;
   all?: boolean;
+  suspended?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="group relative text-left rounded-2xl border border-border bg-surface p-4 transition-all hover:border-brand/40 hover:-translate-y-0.5"
+      className={cn(
+        "group relative text-left rounded-2xl border bg-surface p-4 transition-all hover:-translate-y-0.5",
+        suspended ? "border-destructive/30 hover:border-destructive/60" : "border-border hover:border-brand/40",
+      )}
     >
       <div className="flex items-start justify-between">
-        <span className={cn("grid h-10 w-10 place-items-center rounded-xl border border-white/10", all ? "gradient-brand text-white" : "bg-white/[0.06] text-brand")}>
-          {all ? <Layers className="h-5 w-5" strokeWidth={1.75} /> : <Folder className="h-5 w-5" strokeWidth={1.75} />}
+        <span
+          className={cn(
+            "grid h-10 w-10 place-items-center rounded-xl border border-white/10",
+            suspended ? "bg-destructive/15 text-destructive" : all ? "gradient-brand text-white" : "bg-white/[0.06] text-brand",
+          )}
+        >
+          {suspended ? <Ban className="h-5 w-5" strokeWidth={1.75} /> : all ? <Layers className="h-5 w-5" strokeWidth={1.75} /> : <Folder className="h-5 w-5" strokeWidth={1.75} />}
         </span>
         {onDelete && (
           <span

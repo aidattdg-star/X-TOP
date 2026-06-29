@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Send, Repeat2, MessageCircle, Zap } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap, Search, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -72,7 +72,12 @@ export function CreateMonitorModal({
   const [intervalMax, setIntervalMax] = useState(12);
   const [testMode, setTestMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [acctFilter, setAcctFilter] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const shownAccounts = accounts.filter((a) =>
+    a.username.toLowerCase().includes(acctFilter.trim().toLowerCase()),
+  );
 
   const actionMeta = ACTIONS.find((a) => a.value === action)!;
   const handles = targets
@@ -275,42 +280,80 @@ export function CreateMonitorModal({
             </p>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Suas contas que vão agir
               </Label>
-              <button
-                type="button"
-                className="text-xs text-brand hover:underline"
-                onClick={() =>
-                  setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.id))
-                }
-              >
-                {selected.length === accounts.length && accounts.length ? "Limpar" : "Todas"}
-              </button>
+              <span className="text-[11px] text-muted-foreground">
+                <b className="text-foreground tabular-nums">{selected.length}</b> selecionada(s)
+              </span>
             </div>
             {accounts.length === 0 ? (
-              <p className="text-xs text-muted-foreground border border-border rounded-md p-3">
-                Nenhuma conta cadastrada ainda. Adicione contas em "Contas & Proxies".
+              <p className="text-xs text-muted-foreground border border-white/10 rounded-xl p-4 text-center">
+                Nenhuma conta cadastrada ainda. Adicione contas em "Contas &amp; Proxies".
               </p>
             ) : (
-              <div className="max-h-40 overflow-auto border border-border rounded-md p-2 grid grid-cols-2 gap-1">
-                {accounts.map((a) => (
-                  <label
-                    key={a.id}
-                    className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-accent cursor-pointer"
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
+                <div className="flex items-center gap-2 px-2.5 py-2 border-b border-white/[0.06]">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    value={acctFilter}
+                    onChange={(e) => setAcctFilter(e.target.value)}
+                    placeholder="Buscar @conta…"
+                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                  />
+                  <button
+                    type="button"
+                    className="text-[11px] text-brand hover:underline shrink-0"
+                    onClick={() => {
+                      const ids = shownAccounts.map((a) => a.id);
+                      const allOn = ids.length > 0 && ids.every((id) => selected.includes(id));
+                      setSelected(
+                        allOn
+                          ? selected.filter((id) => !ids.includes(id))
+                          : [...new Set([...selected, ...ids])],
+                      );
+                    }}
                   >
-                    <Checkbox
-                      checked={selected.includes(a.id)}
-                      onCheckedChange={() => toggleAcc(a.id)}
-                    />
-                    <span className="truncate">@{a.username}</span>
-                  </label>
-                ))}
+                    {shownAccounts.length > 0 && shownAccounts.every((a) => selected.includes(a.id))
+                      ? "Limpar"
+                      : "Todas"}
+                  </button>
+                </div>
+                <div className="max-h-44 overflow-auto p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                  {shownAccounts.map((a) => {
+                    const on = selected.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => toggleAcc(a.id)}
+                        className={cn(
+                          "flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
+                          on ? "bg-accent" : "hover:bg-white/[0.04]",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
+                            on ? "border-brand bg-brand text-white" : "border-white/15",
+                          )}
+                        >
+                          {on && <Check className="h-3 w-3" strokeWidth={3} />}
+                        </span>
+                        <span className="text-xs text-foreground truncate">@{a.username}</span>
+                      </button>
+                    );
+                  })}
+                  {shownAccounts.length === 0 && (
+                    <p className="col-span-full px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      Nenhuma conta encontrada.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
-            <p className="text-xs text-muted-foreground">{selected.length} selecionada(s)</p>
           </div>
         </div>
 
