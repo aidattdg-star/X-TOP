@@ -82,6 +82,8 @@ function MassEnagePage() {
   const [blocks, setBlocks] = useState<Block[]>([
     { id: uid(), tweet_url: "", account_ids: [] },
   ]);
+  // Filtro de pasta por bloco (apenas visual: "__all__" | "__none__" | folderId)
+  const [blockFilters, setBlockFilters] = useState<Record<string, string>>({});
   const [doLike, setDoLike] = useState(true);
   const [doRetweet, setDoRetweet] = useState(true);
   const [doComment, setDoComment] = useState(false);
@@ -394,7 +396,14 @@ function MassEnagePage() {
           {isLoading && <p className="text-sm text-muted-foreground">Carregando contas...</p>}
 
           <div className="space-y-3">
-            {blocks.map((block, i) => (
+            {blocks.map((block, i) => {
+              const bf = blockFilters[block.id] ?? "__all__";
+              const shownAccts = activeAccounts.filter((a) =>
+                bf === "__all__" ? true : bf === "__none__" ? !a.folder_id : a.folder_id === bf,
+              );
+              const allShownOn = shownAccts.length > 0 && shownAccts.every((a) => block.account_ids.includes(a.id));
+              const setBf = (v: string) => setBlockFilters((m) => ({ ...m, [block.id]: v }));
+              return (
               <div key={block.id} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -421,20 +430,39 @@ function MassEnagePage() {
                     <Label className="text-xs text-muted-foreground">Contas que vão engajar neste link</Label>
                     <button
                       className="text-xs text-brand hover:underline"
-                      onClick={() =>
+                      onClick={() => {
+                        const shownIds = shownAccts.map((a) => a.id);
                         updateBlock(block.id, {
-                          account_ids:
-                            block.account_ids.length === activeAccounts.length
-                              ? []
-                              : activeAccounts.map((a) => a.id),
-                        })
-                      }
+                          account_ids: allShownOn
+                            ? block.account_ids.filter((id) => !shownIds.includes(id))
+                            : [...new Set([...block.account_ids, ...shownIds])],
+                        });
+                      }}
                     >
-                      {block.account_ids.length === activeAccounts.length ? "Limpar" : "Selecionar todas"}
+                      {allShownOn ? "Limpar visíveis" : "Selecionar todas"}
                     </button>
                   </div>
+                  {/* Filtro por pasta */}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <FolderChip label="Todas" count={activeAccounts.length} active={bf === "__all__"} onClick={() => setBf("__all__")} />
+                    <FolderChip
+                      label="Sem pasta"
+                      count={activeAccounts.filter((a) => !a.folder_id).length}
+                      active={bf === "__none__"}
+                      onClick={() => setBf("__none__")}
+                    />
+                    {folders.map((f) => (
+                      <FolderChip
+                        key={f.id}
+                        label={f.name}
+                        count={countInFolder(f.id)}
+                        active={bf === f.id}
+                        onClick={() => setBf(f.id)}
+                      />
+                    ))}
+                  </div>
                   <div className="max-h-40 overflow-auto rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 grid grid-cols-2 sm:grid-cols-3 gap-1">
-                    {activeAccounts.map((a) => (
+                    {shownAccts.map((a) => (
                       <label
                         key={a.id}
                         className="flex items-center gap-2 text-sm px-2 py-1 rounded-md hover:bg-white/[0.05] cursor-pointer"
@@ -448,10 +476,14 @@ function MassEnagePage() {
                         <span className="truncate">@{a.username}</span>
                       </label>
                     ))}
+                    {shownAccts.length === 0 && (
+                      <p className="col-span-full text-xs text-muted-foreground p-2">Nenhuma conta disponível nessa pasta.</p>
+                    )}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </Section>
 
