@@ -502,13 +502,9 @@ async function runTask(admin: any, task: any) {
   const tokens = { ...(acc.auth_tokens as AuthTokens) };
   if (!tokens?.ct0 || !tokens?.auth_token) throw new Error("Cookies (ct0/auth_token) ausentes na conta");
 
-  // Load proxy (optional)
-  let proxy: ProxyInfo | null = null;
-  if (acc.proxy_id) {
-    const { data: p } = await admin
-      .from("proxies").select("ip, port, username, password").eq("id", acc.proxy_id).maybeSingle();
-    if (p) proxy = p as ProxyInfo;
-  }
+  // Proxy: usa o da conta se vivo; senão cai pro pool global (fallback compartilhado).
+  const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+  const proxy = (await loadProxyOrFallback(admin, acc.proxy_id)) as ProxyInfo | null;
   const dispatcher = buildDispatcher(proxy);
 
   const config = (task.payload?.config ?? {}) as Record<string, any>;

@@ -368,19 +368,15 @@ export const unprotectAccounts = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { setProtected, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
     const wantProtected = !!data.makeProtected;
     const results: Array<{ accountId: string; username?: string; ok: boolean; error?: string }> = [];
     for (const accountId of data.accountIds) {
       try {
         const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
-        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
         const { data: pa } = await context.supabase
           .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
-        if (pa?.proxy_id) {
-          const { data: p } = await context.supabase
-            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
-          proxy = p as any;
-        }
+        const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
         await setProtected(tokens, wantProtected, buildDispatcher(proxy));
         await persistRefreshed(context.supabase, accountId, tokens);
         results.push({ accountId, username: acc.username, ok: true });
@@ -503,6 +499,7 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
       : null;
 
     const { uploadTweetMedia, uploadTweetVideo, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
 
     const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
     const posted: Array<{ accountId: string; restId: string }> = [];
@@ -510,15 +507,10 @@ export const postTweetToAccounts = createServerFn({ method: "POST" })
       try {
         const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
 
-        // proxy da conta (escrita/upload SEMPRE pelo proxy)
-        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
+        // proxy da conta (escrita/upload SEMPRE pelo proxy) — com fallback do pool global
         const { data: pa } = await context.supabase
           .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
-        if (pa?.proxy_id) {
-          const { data: p } = await context.supabase
-            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
-          proxy = p as any;
-        }
+        const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
         const dispatcher = buildDispatcher(proxy);
 
         let mediaIds: string[] | undefined;
@@ -639,20 +631,16 @@ export const replyToTweetAccounts = createServerFn({ method: "POST" })
     const { commentReply, getUserIdByScreenName, getUserRecentTweets, buildDispatcher } = await import(
       "@/lib/twitter-client.server"
     );
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
 
     const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
     for (const accountId of data.accountIds) {
       try {
         const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
 
-        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
         const { data: pa } = await context.supabase
           .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
-        if (pa?.proxy_id) {
-          const { data: p } = await context.supabase
-            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
-          proxy = p as any;
-        }
+        const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
         const dispatcher = buildDispatcher(proxy);
 
         let tweetId = urlId;

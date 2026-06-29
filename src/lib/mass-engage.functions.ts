@@ -100,15 +100,8 @@ export const runMassEngage = createServerFn({ method: "POST" })
         const tokens = src.auth_tokens as any;
         if (!tokens?.ct0 || !tokens?.auth_token) continue;
         try {
-          let proxy: any = null;
-          if (src.proxy_id) {
-            const { data: p } = await context.supabase
-              .from("proxies")
-              .select("ip, port, username, password")
-              .eq("id", src.proxy_id)
-              .maybeSingle();
-            proxy = p;
-          }
+          const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+          const proxy = await loadProxyOrFallback(context.supabase, src.proxy_id);
           const dispatcher = buildDispatcher(proxy);
           const userId = await getUserIdByScreenName(tokens, src.username, dispatcher);
           const tweets = await getUserRecentTweets(tokens, userId, 5, dispatcher);

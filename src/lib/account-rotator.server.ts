@@ -84,12 +84,8 @@ async function pickNext(admin: any, userId: string, excludeIds: Set<string>): Pr
     .update({ last_used_at: nowIso })
     .eq("id", chosen.id);
 
-  let proxy: ProxyInfo | null = null;
-  if (chosen.proxy_id) {
-    const { data: p } = await admin
-      .from("proxies").select("ip, port, username, password").eq("id", chosen.proxy_id).maybeSingle();
-    if (p) proxy = p as ProxyInfo;
-  }
+  const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+  const proxy = (await loadProxyOrFallback(admin, chosen.proxy_id)) as ProxyInfo | null;
 
   return {
     id: chosen.id,
