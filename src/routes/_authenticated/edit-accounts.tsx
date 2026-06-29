@@ -370,8 +370,27 @@ function MediaApplyCard({
     enabled: !!folderId,
   });
 
+  // contagem de imagens por pasta (pra mostrar e evitar pasta vazia)
+  const { data: folderCounts } = useQuery<Record<string, number>>({
+    queryKey: ["media_file_counts"],
+    queryFn: async () => {
+      const { data } = await supabase.from("media_files").select("folder_id");
+      const c: Record<string, number> = {};
+      for (const r of data ?? []) {
+        const fid = (r as any).folder_id as string;
+        c[fid] = (c[fid] ?? 0) + 1;
+      }
+      return c;
+    },
+  });
+  const selectedCount = folderId ? (folderCounts?.[folderId] ?? 0) : null;
+
   async function submit() {
     if (!folderId) { toast.error("Escolha uma pasta"); return; }
+    if (selectedCount === 0) {
+      toast.error("Pasta vazia — envie imagens em Mídias antes de aplicar.");
+      return;
+    }
     if (mode === "same" && !mediaFileId) { toast.error("Escolha a imagem"); return; }
     setBusy(true);
     setProgress({ done: 0, ok: 0, fail: 0 });
@@ -414,13 +433,23 @@ function MediaApplyCard({
             >
               <option value="">Selecione...</option>
               {folders.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
+                <option key={f.id} value={f.id}>
+                  {f.name} ({folderCounts?.[f.id] ?? 0})
+                </option>
               ))}
             </select>
             {!folders.length && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 Crie pastas em Mídias → categoria "Fotos de perfil".
               </p>
+            )}
+            {selectedCount === 0 && (
+              <p className="text-[10px] text-amber-400 mt-1">
+                ⚠ Pasta vazia — envie imagens em Mídias antes de aplicar.
+              </p>
+            )}
+            {selectedCount != null && selectedCount > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">{selectedCount} imagem(ns) na pasta.</p>
             )}
           </div>
           <div>
@@ -474,7 +503,7 @@ function MediaApplyCard({
 
         <button
           onClick={submit}
-          disabled={busy}
+          disabled={busy || !folderId || selectedCount === 0}
           className="px-4 py-2.5 text-xs font-medium rounded-lg gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
         >
           {busy && <Loader2 className="w-3 h-3 animate-spin" />}

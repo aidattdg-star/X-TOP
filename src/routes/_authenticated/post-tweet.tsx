@@ -64,6 +64,20 @@ function PostTweetPage() {
     },
   });
 
+  const { data: mediaCounts } = useQuery<Record<string, number>>({
+    queryKey: ["media_file_counts"],
+    queryFn: async () => {
+      const { data } = await supabase.from("media_files").select("folder_id");
+      const c: Record<string, number> = {};
+      for (const r of data ?? []) {
+        const fid = (r as any).folder_id as string;
+        c[fid] = (c[fid] ?? 0) + 1;
+      }
+      return c;
+    },
+  });
+  const mediaFolderCount = mediaFolderId ? (mediaCounts?.[mediaFolderId] ?? 0) : null;
+
   const { data: files = [] } = useQuery<MediaFile[]>({
     queryKey: ["media_files_post", mediaFolderId],
     enabled: !!mediaFolderId && mediaMode === "same",
@@ -102,6 +116,7 @@ function PostTweetPage() {
     if (!selected.length) return toast.error("Selecione ao menos uma conta.");
     if (!text.trim() && mediaMode === "none") return toast.error("Escreva o texto ou escolha uma mídia.");
     if (mediaMode !== "none" && !mediaFolderId) return toast.error("Escolha a pasta de mídia.");
+    if (mediaMode !== "none" && mediaFolderCount === 0) return toast.error("Pasta de mídia vazia — envie imagens primeiro.");
     if (mediaMode === "same" && !mediaFileId) return toast.error("Escolha a imagem.");
 
     setBusy(true);
@@ -191,12 +206,19 @@ function PostTweetPage() {
               >
                 <option value="">Selecione…</option>
                 {mediaFolders.map((f) => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({mediaCounts?.[f.id] ?? 0})
+                  </option>
                 ))}
               </select>
               {!mediaFolders.length && (
                 <p className="mt-1 text-[10px] text-muted-foreground">
                   Crie pastas em Mídias → categoria "Mídias para tweets" (ex.: modelo 1, 2, 3).
+                </p>
+              )}
+              {mediaFolderCount === 0 && (
+                <p className="mt-1 text-[10px] text-amber-400">
+                  ⚠ Pasta vazia — envie imagens nessa pasta em Mídias.
                 </p>
               )}
             </div>
