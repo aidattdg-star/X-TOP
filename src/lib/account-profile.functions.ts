@@ -390,6 +390,49 @@ export const unprotectAccounts = createServerFn({ method: "POST" })
   });
 
 // ============================================================================
+// TESTAR CONTAS (online?) — se cair (die), marca banida (vai pra Suspensas)
+// ============================================================================
+export const testAccountsOnline = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { accountIds: string[] }) =>
+    z.object({ accountIds: z.array(z.string().uuid()).min(1).max(20) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { verifySession, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+    const results: Array<{ accountId: string; username?: string; status: "online" | "die" | "erro"; error?: string }> = [];
+    for (const accountId of data.accountIds) {
+      let username: string | undefined;
+      try {
+        const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
+        username = acc.username;
+        const { data: pa } = await context.supabase
+          .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+        const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
+        // valida a sessão da própria conta (passa pelo proxy)
+        await verifySession(tokens, acc.username, buildDispatcher(proxy));
+        await persistRefreshed(context.supabase, accountId, tokens);
+        results.push({ accountId, username, status: "online" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (isDeadMsg(msg)) {
+          await markDownIfFell(context.supabase, accountId, msg); // marca banida + proxy die
+          results.push({ accountId, username, status: "die", error: msg.slice(0, 90) });
+        } else {
+          // sessão pode estar só expirada/instável — não bane, só avisa
+          results.push({ accountId, username, status: "erro", error: msg.slice(0, 90) });
+        }
+      }
+    }
+    return {
+      results,
+      online: results.filter((r) => r.status === "online").length,
+      die: results.filter((r) => r.status === "die").length,
+      erro: results.filter((r) => r.status === "erro").length,
+    };
+  });
+
+// ============================================================================
 // @ USERNAME (individual, com rate-limit 1x/dia)
 // ============================================================================
 export const updateAccountUsername = createServerFn({ method: "POST" })

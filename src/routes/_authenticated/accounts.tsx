@@ -9,9 +9,10 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
+import { testAccountsOnline } from "@/lib/account-profile.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,33 @@ function AccountsPage() {
   const runTestAccount = useServerFn(testTwitterAccount);
   const runTestProxy = useServerFn(testProxyConnection);
   const runTestPost = useServerFn(testPostTweets);
+  const runTestAccountsOnline = useServerFn(testAccountsOnline);
+  const [testingAccounts, setTestingAccounts] = useState(false);
+  const [acctTestDone, setAcctTestDone] = useState({ done: 0, total: 0, die: 0 });
+
+  // Testa TODAS as contas (não-banidas) em lotes; quem der die vai pra Suspensas.
+  async function testAllAccounts() {
+    const ids = (accounts ?? []).filter((a: any) => a.status !== "banned").map((a: any) => a.id as string);
+    if (!ids.length) return toast.info("Nenhuma conta pra testar.");
+    if (!confirm(`Testar ${ids.length} conta(s)? As que estiverem caídas (suspensas/banidas) vão automaticamente pra "Suspensas".`)) return;
+    setTestingAccounts(true);
+    setAcctTestDone({ done: 0, total: ids.length, die: 0 });
+    let die = 0, online = 0, erro = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 12) {
+        const chunk = ids.slice(i, i + 12);
+        try {
+          const r = await runTestAccountsOnline({ data: { accountIds: chunk } });
+          die += r.die; online += r.online; erro += r.erro;
+        } catch { /* lote falhou — segue */ }
+        setAcctTestDone({ done: Math.min(i + 12, ids.length), total: ids.length, die });
+        qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+      }
+      toast.success(`Teste: ${online} online · ${die} caíram (→ Suspensas)${erro ? ` · ${erro} instável(is)` : ""}`);
+    } finally {
+      setTestingAccounts(false);
+    }
+  }
 
   async function testAccount(id: string) {
     setTestingAcc(id);
@@ -238,6 +266,10 @@ function AccountsPage() {
         description="Isolamento máximo: cada conta do X opera através de um proxy dedicado."
         actions={
           <>
+            <Button variant="outline" onClick={testAllAccounts} disabled={testingAccounts || !accounts?.length}>
+              {testingAccounts ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Activity className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+              {testingAccounts ? `Testando ${acctTestDone.done}/${acctTestDone.total}${acctTestDone.die ? ` · ${acctTestDone.die} die` : ""}` : "Testar contas"}
+            </Button>
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy
             </Button>
