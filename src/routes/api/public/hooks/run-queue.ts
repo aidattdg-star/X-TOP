@@ -304,6 +304,16 @@ async function handle(): Promise<Response> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
 
+        // Conta em quarentena (shadowban): adia ~12h pra descansar/recuperar (sem falha/tentativa).
+        if (msg.startsWith("__QUARANTINE__:")) {
+          const next = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "pending", scheduled_for: next, attempts: task.attempts ?? 0, last_error: "Conta em quarentena (shadowban) — adiada p/ recuperar", updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          continue;
+        }
+
         // Conta em aquecimento: adia a tarefa pro fim do cadeado, sem contar como falha/tentativa.
         if (msg.startsWith("__WARMING__:")) {
           const until = msg.slice("__WARMING__:".length);
@@ -484,7 +494,7 @@ async function runTask(admin: any, task: any) {
 
   const { data: acc, error } = await admin
     .from("twitter_accounts")
-    .select("id, username, auth_tokens, proxy_id, warming_until, status")
+    .select("id, username, auth_tokens, proxy_id, warming_until, status, shadowban_at")
     .eq("id", task.twitter_account_id)
     .maybeSingle();
   if (error || !acc) throw new Error("Conta não encontrada");
@@ -492,6 +502,11 @@ async function runTask(admin: any, task: any) {
   // Conta banida/suspensa: NÃO faz request nenhum — cancela a tarefa de imediato.
   if (acc.status === "banned" || acc.status === "suspended") {
     throw new Error(`__BANNED__:${acc.status}`);
+  }
+
+  // Em quarentena (shadowban): fica parada pra recuperar — adia a tarefa.
+  if (acc.shadowban_at) {
+    throw new Error(`__QUARANTINE__:${acc.shadowban_at}`);
   }
 
   // Cadeado de aquecimento: conta travada não executa ações de spam — adia a tarefa.

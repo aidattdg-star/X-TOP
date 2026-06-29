@@ -13,6 +13,7 @@ import { Route as PendingRouteImport } from './routes/pending'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedQuarantineRouteImport } from './routes/_authenticated/quarantine'
 import { Route as AuthenticatedPostTweetRouteImport } from './routes/_authenticated/post-tweet'
 import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedMediaRouteImport } from './routes/_authenticated/media'
@@ -50,6 +51,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedQuarantineRoute = AuthenticatedQuarantineRouteImport.update({
+  id: '/quarantine',
+  path: '/quarantine',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPostTweetRoute = AuthenticatedPostTweetRouteImport.update({
   id: '/post-tweet',
@@ -164,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
   '/post-tweet': typeof AuthenticatedPostTweetRoute
+  '/quarantine': typeof AuthenticatedQuarantineRoute
   '/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
@@ -186,6 +193,7 @@ export interface FileRoutesByTo {
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
   '/post-tweet': typeof AuthenticatedPostTweetRoute
+  '/quarantine': typeof AuthenticatedQuarantineRoute
   '/automations': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
@@ -211,6 +219,7 @@ export interface FileRoutesById {
   '/_authenticated/media': typeof AuthenticatedMediaRoute
   '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
   '/_authenticated/post-tweet': typeof AuthenticatedPostTweetRoute
+  '/_authenticated/quarantine': typeof AuthenticatedQuarantineRoute
   '/_authenticated/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/_authenticated/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/collect-views': typeof ApiPublicHooksCollectViewsRoute
@@ -236,6 +245,7 @@ export interface FileRouteTypes {
     | '/media'
     | '/monitoring'
     | '/post-tweet'
+    | '/quarantine'
     | '/automations/'
     | '/automations/builder/$id'
     | '/api/public/hooks/collect-views'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/media'
     | '/monitoring'
     | '/post-tweet'
+    | '/quarantine'
     | '/automations'
     | '/automations/builder/$id'
     | '/api/public/hooks/collect-views'
@@ -282,6 +293,7 @@ export interface FileRouteTypes {
     | '/_authenticated/media'
     | '/_authenticated/monitoring'
     | '/_authenticated/post-tweet'
+    | '/_authenticated/quarantine'
     | '/_authenticated/automations/'
     | '/_authenticated/automations/builder/$id'
     | '/api/public/hooks/collect-views'
@@ -331,6 +343,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/quarantine': {
+      id: '/_authenticated/quarantine'
+      path: '/quarantine'
+      fullPath: '/quarantine'
+      preLoaderRoute: typeof AuthenticatedQuarantineRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/post-tweet': {
       id: '/_authenticated/post-tweet'
@@ -493,6 +512,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedMediaRoute: typeof AuthenticatedMediaRoute
   AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
   AuthenticatedPostTweetRoute: typeof AuthenticatedPostTweetRoute
+  AuthenticatedQuarantineRoute: typeof AuthenticatedQuarantineRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -507,6 +527,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedMediaRoute: AuthenticatedMediaRoute,
   AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
   AuthenticatedPostTweetRoute: AuthenticatedPostTweetRoute,
+  AuthenticatedQuarantineRoute: AuthenticatedQuarantineRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

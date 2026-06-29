@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Send,
+  EyeOff,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ const nav = [
   { to: "/mass-engage", label: "RT & Like massa", icon: Rocket },
   { to: "/education", label: "Educar conta", icon: GraduationCap },
   { to: "/monitoring", label: "Monitoramento", icon: Activity },
+  { to: "/quarantine", label: "Quarentena", icon: EyeOff },
   { to: "/logs", label: "Logs", icon: ScrollText },
 ] as const;
 
