@@ -63,7 +63,9 @@ async function resolveFilesPerAccount(
     for (const id of accountIds) out.set(id, { id: file.id, storage_path: file.storage_path });
     return out;
   }
-  // random
+  // random — sorteia, mas NUNCA repete o mesmo arquivo em sequência (pode reusar
+  // não-consecutivamente). Embaralha e percorre em ciclos, garantindo que o
+  // primeiro de um ciclo seja diferente do último do ciclo anterior.
   if (!opts.folderId) throw new Error("folderId é obrigatório no modo 'random'");
   const { data: files } = await supabase
     .from("media_files")
@@ -71,8 +73,30 @@ async function resolveFilesPerAccount(
     .eq("folder_id", opts.folderId)
     .eq("user_id", userId);
   if (!files?.length) throw new Error("Pasta vazia");
+
+  const shuffle = <T,>(arr: T[]): T[] => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  let prevId: string | null = null;
+  if (files.length === 1) {
+    for (const id of accountIds) out.set(id, { id: files[0].id, storage_path: files[0].storage_path });
+    return out;
+  }
+  let bag: typeof files = [];
   for (const id of accountIds) {
-    const pick = files[Math.floor(Math.random() * files.length)];
+    if (!bag.length) {
+      bag = shuffle(files);
+      // evita que o início do novo ciclo repita o último usado
+      if (bag[0].id === prevId && bag.length > 1) [bag[0], bag[1]] = [bag[1], bag[0]];
+    }
+    const pick = bag.shift()!;
+    prevId = pick.id;
     out.set(id, { id: pick.id, storage_path: pick.storage_path });
   }
   return out;
@@ -642,11 +666,36 @@ export const schedulePostTweet = createServerFn({ method: "POST" })
       const j = Math.floor(Math.random() * (i + 1));
       [ids[i], ids[j]] = [ids[j], ids[i]];
     }
+    // Pré-atribui a mídia (modo aleatório) sem repetir o mesmo arquivo 2x seguidas.
+    const mediaAssign: (string | undefined)[] = [];
+    if (withMedia && data.mode !== "same" && data.folderId) {
+      const { data: mf } = await context.supabase
+        .from("media_files").select("id").eq("folder_id", data.folderId).eq("user_id", context.userId);
+      const fileIds = (mf ?? []).map((f: any) => f.id as string);
+      if (fileIds.length) {
+        const sh = (arr: string[]) => {
+          const a = arr.slice();
+          for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+          return a;
+        };
+        let prev: string | null = null;
+        let bag: string[] = [];
+        for (let i = 0; i < ids.length; i++) {
+          if (fileIds.length === 1) { mediaAssign.push(fileIds[0]); continue; }
+          if (!bag.length) { bag = sh(fileIds); if (bag[0] === prev && bag.length > 1) [bag[0], bag[1]] = [bag[1], bag[0]]; }
+          const p = bag.shift()!;
+          prev = p;
+          mediaAssign.push(p);
+        }
+      }
+    }
+
     const base = Date.now();
     let offset = Math.random() * minM * 60_000;
-    const rows = ids.map((accId) => {
+    const rows = ids.map((accId, i) => {
       const at = base + offset;
       offset += (minM + Math.random() * (maxM - minM)) * 60_000;
+      const assigned = mediaAssign[i];
       return {
         user_id: context.userId,
         flow_id: flow.id,
@@ -655,8 +704,9 @@ export const schedulePostTweet = createServerFn({ method: "POST" })
         payload: {
           config: {
             text,
-            media_folder_id: data.mode !== "same" ? data.folderId : undefined,
-            media_file_id: data.mode === "same" ? data.mediaFileId : undefined,
+            // mídia pré-atribuída (sem repetir 2x seguidas); fallback p/ pasta aleatória
+            media_file_id: data.mode === "same" ? data.mediaFileId : assigned,
+            media_folder_id: data.mode !== "same" && !assigned ? data.folderId : undefined,
             anti_duplicate: true,
           },
         },
