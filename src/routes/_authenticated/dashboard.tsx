@@ -468,7 +468,12 @@ function Dashboard() {
                 return (
                   <>
                     <div className="flex items-center gap-3">
-                      <ScoreRing value={healthScore} color={scoreColor} />
+                      <span
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border"
+                        style={{ background: scoreColor + "16", borderColor: scoreColor + "33", color: scoreColor }}
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                      </span>
                       <div className="min-w-0">
                         <p className="text-[13px] font-medium text-foreground">Saúde das contas</p>
                         <p className="text-[11px] text-muted-foreground">
@@ -660,27 +665,3 @@ function StatTile({ color, label, n }: { color: string; label: string; n: number
   );
 }
 
-function ScoreRing({ value, color }: { value: number; color: string }) {
-  const r = 19;
-  const circ = 2 * Math.PI * r;
-  const v = Math.max(0, Math.min(100, value));
-  const off = circ * (1 - v / 100);
-  return (
-    <div className="relative h-14 w-14 shrink-0">
-      <svg viewBox="0 0 48 48" className="h-14 w-14 -rotate-90">
-        <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
-        <circle
-          cx="24" cy="24" r={r} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
-          strokeDasharray={circ} strokeDashoffset={off}
-          style={{ transition: "stroke-dashoffset .6s ease" }}
-        />
-      </svg>
-      <span className="absolute inset-0 grid place-items-center">
-        <span className="flex items-baseline gap-px" style={{ color }}>
-          <span className="text-[14px] font-semibold tabular-nums leading-none">{v}</span>
-          <span className="text-[8px] font-medium">%</span>
-        </span>
-      </span>
-    </div>
-  );
-}
