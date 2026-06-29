@@ -90,9 +90,6 @@ function MassEnagePage() {
   const [speed, setSpeed] = useState<SpeedKey>("human");
   const [minMin, setMinMin] = useState(2);
   const [maxMin, setMaxMin] = useState(10);
-  const [crossEngage, setCrossEngage] = useState(false);
-  const [sourceIds, setSourceIds] = useState<string[]>([]);
-  const [engagerIds, setEngagerIds] = useState<string[]>([]);
   // Engajamento por pasta
   const [folderEngage, setFolderEngage] = useState(false);
   const [engagerFolderIds, setEngagerFolderIds] = useState<string[]>([]);
@@ -146,19 +143,9 @@ function MassEnagePage() {
       .map((b) => ({ tweet_url: b.tweet_url.trim(), account_ids: b.account_ids }))
       .filter((b) => b.tweet_url && b.account_ids.length);
 
-    // Fontes/engajadores finais = seleção manual (cross) + por pasta.
-    const finalSources = [
-      ...new Set([
-        ...(crossEngage ? sourceIds : []),
-        ...(folderEngage ? folderSources.map((a) => a.id) : []),
-      ]),
-    ].slice(0, MAX_POSTS); // teto de 5 posts
-    const finalEngagers = [
-      ...new Set([
-        ...(crossEngage ? engagerIds : []),
-        ...(folderEngage ? folderEngagers.map((a) => a.id) : []),
-      ]),
-    ];
+    // Fontes/engajadores finais = engajamento por pasta.
+    const finalSources = (folderEngage ? folderSources.map((a) => a.id) : []).slice(0, MAX_POSTS); // teto de 5 posts
+    const finalEngagers = folderEngage ? folderEngagers.map((a) => a.id) : [];
     const hasCross = finalSources.length > 0 && finalEngagers.length > 0;
 
     if (folderEngage && !hasCross) {
@@ -468,35 +455,6 @@ function MassEnagePage() {
           </div>
         </Section>
 
-        {/* Engajamento entre contas */}
-        <Section icon={Users2} title="Engajar entre as próprias contas">
-          <label className="flex items-center gap-2 cursor-pointer w-fit">
-            <Checkbox checked={crossEngage} onCheckedChange={(v) => setCrossEngage(!!v)} />
-            <span className="text-sm text-foreground">Ativar engajamento cruzado</span>
-          </label>
-          <p className="text-xs text-muted-foreground mt-2">
-            O sistema pega o <b className="text-foreground">último tweet</b> de cada conta-fonte e agenda RT/like
-            das contas engajadoras nesse tweet.
-          </p>
-
-          {crossEngage && (
-            <div className="grid md:grid-cols-2 gap-4 mt-3">
-              <AccountPicker
-                title="Contas-fonte (autores dos posts)"
-                accounts={activeAccounts}
-                selected={sourceIds}
-                onChange={setSourceIds}
-              />
-              <AccountPicker
-                title="Contas que vão engajar"
-                accounts={activeAccounts}
-                selected={engagerIds}
-                onChange={setEngagerIds}
-              />
-            </div>
-          )}
-        </Section>
-
         {/* Engajamento por pasta */}
         <Section icon={FolderTree} title="Engajamento por pasta (RT cruzado)">
           <label className="flex items-center gap-2 cursor-pointer w-fit">
@@ -649,49 +607,3 @@ function FolderChip({
   );
 }
 
-function AccountPicker({
-  title,
-  accounts,
-  selected,
-  onChange,
-}: {
-  title: string;
-  accounts: Account[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-      <div className="flex items-center justify-between mb-2">
-        <Label className="text-xs text-muted-foreground">{title}</Label>
-        <button
-          className="text-xs text-brand hover:underline"
-          onClick={() => onChange(selected.length === accounts.length ? [] : accounts.map((a) => a.id))}
-        >
-          {selected.length === accounts.length ? "Limpar" : "Todas"}
-        </button>
-      </div>
-      <div className="max-h-56 overflow-auto grid grid-cols-2 gap-1">
-        {accounts.map((a) => (
-          <label
-            key={a.id}
-            className="flex items-center gap-2 text-sm px-2 py-1 rounded-md hover:bg-white/[0.05] cursor-pointer"
-          >
-            <Checkbox
-              checked={selected.includes(a.id)}
-              onCheckedChange={() =>
-                onChange(
-                  selected.includes(a.id)
-                    ? selected.filter((x) => x !== a.id)
-                    : [...selected, a.id],
-                )
-              }
-            />
-            <span className="truncate">@{a.username}</span>
-          </label>
-        ))}
-      </div>
-      <p className="text-xs text-muted-foreground mt-1">{selected.length} selecionada(s)</p>
-    </div>
-  );
-}
