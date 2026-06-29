@@ -231,7 +231,7 @@ export function CreateMonitorModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[85dvh] overflow-y-auto overscroll-contain">
+      <DialogContent className="sm:max-w-xl max-h-[85dvh] overflow-y-auto overflow-x-hidden overscroll-contain">
         <DialogHeader>
           <DialogTitle className="font-light text-xl">Novo monitor</DialogTitle>
           <DialogDescription>
@@ -243,7 +243,7 @@ export function CreateMonitorModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 mt-1">
+        <div className="space-y-3 mt-1 min-w-0">
           <div className="space-y-1.5">
             <StepLabel n={1} text="Quem monitorar (@ alvo)" />
             <Textarea
@@ -254,8 +254,8 @@ export function CreateMonitorModal({
               className="font-mono text-xs bg-white/[0.04] border-white/10 focus-visible:border-brand/40 resize-none"
             />
             {handles.length > 0 && (
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground truncate">
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground truncate">
                   {handles.length} alvo(s): {handles.map((h) => "@" + h).join(", ")}
                 </p>
                 <button
