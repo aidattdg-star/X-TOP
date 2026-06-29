@@ -433,7 +433,22 @@ async function runTask(admin: any, task: any) {
     likeTweet,
     buildDispatcher,
     uploadTweetMedia,
+    keepAliveSession,
   } = await import("@/lib/twitter-client.server");
+
+  // "Aquecer ao agir": a conta dá uma lida rápida (Viewer + feed) no momento da
+  // ação — parece sessão de navegador ativa, não bot frio. Best-effort.
+  async function warmUp(tokens: AuthTokens, dispatcher: any, accId: string) {
+    try {
+      await keepAliveSession(tokens, dispatcher);
+      if (tokens.refreshed) {
+        const { refreshed: _r, ...persist } = tokens;
+        await admin.from("twitter_accounts")
+          .update({ auth_tokens: persist, updated_at: new Date().toISOString() }).eq("id", accId);
+        tokens.refreshed = false;
+      }
+    } catch { /* aquecimento é best-effort */ }
+  }
 
   if (!task.twitter_account_id) throw new Error("Tarefa sem twitter_account_id");
 
@@ -494,6 +509,7 @@ async function runTask(admin: any, task: any) {
       }
       case "action.retweet": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
+        if (config.warm_on_act) await warmUp(tokens, dispatcher, acc.id);
         // Sequência humana: curtir antes de retweetar (gera confiança, menos cara de bot).
         if (config.like_before) {
           try { await likeTweet(tokens, id, dispatcher); } catch { /* já curtido/tolerado */ }
@@ -504,6 +520,7 @@ async function runTask(admin: any, task: any) {
       }
       case "action.comment": {
         const id = await resolveTweetId(admin, task.user_id, config, tokens, monitoredHandle, dispatcher, task.payload?.trigger_tweet_id);
+        if (config.warm_on_act) await warmUp(tokens, dispatcher, acc.id);
         // Sequência humana: curtir o tweet antes de responder.
         if (config.like_before) {
           try { await likeTweet(tokens, id, dispatcher); } catch { /* já curtido/tolerado */ }
