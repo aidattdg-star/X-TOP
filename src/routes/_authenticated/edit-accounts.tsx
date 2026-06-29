@@ -25,6 +25,7 @@ type Account = {
   display_name: string | null;
   profile_picture_url: string | null;
   status: string;
+  folder_id: string | null;
 };
 
 type Folder = { id: string; name: string; category: "profile_picture" | "tweet_media" };
@@ -40,18 +41,41 @@ function EditAccountsPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
+  // Visão da lista: "todo" (a editar), "editadas", "todas" ou um folder_id.
+  const [view, setView] = useState<string>("todo");
 
   const { data: accounts } = useQuery<Account[]>({
     queryKey: ["twitter_accounts"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("twitter_accounts")
-        .select("id, username, display_name, profile_picture_url, status")
+        .select("id, username, display_name, profile_picture_url, status, folder_id")
         .order("username");
       if (error) throw error;
       return (data ?? []) as Account[];
     },
   });
+
+  // Contas já editadas = têm ao menos 1 ação bem-sucedida no log de perfil.
+  const { data: editedIds } = useQuery<Set<string>>({
+    queryKey: ["edited_account_ids"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profile_update_log")
+        .select("twitter_account_id")
+        .eq("status", "ok");
+      return new Set((data ?? []).map((r: any) => r.twitter_account_id as string));
+    },
+  });
+
+  // Recarrega contas + marca de editadas após qualquer edição bem-sucedida.
+  const refreshAfterEdit = () => {
+    qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+    qc.invalidateQueries({ queryKey: ["edited_account_ids"] });
+  };
+
+  const editedCount = (accounts ?? []).filter((a) => editedIds?.has(a.id)).length;
+  const toEditCount = (accounts?.length ?? 0) - editedCount;
 
   const { data: folders } = useQuery<Folder[]>({
     queryKey: ["media_folders"],
@@ -113,12 +137,21 @@ function EditAccountsPage() {
 
   const filtered = useMemo(() => {
     if (!accounts) return [];
+    let list = accounts;
+    // Filtro por visão/pasta
+    if (view === "todo") list = list.filter((a) => !editedIds?.has(a.id));
+    else if (view === "editadas") list = list.filter((a) => editedIds?.has(a.id));
+    else if (view === "todas") { /* todas */ }
+    else list = list.filter((a) => a.folder_id === view); // folder_id
+    // Filtro por texto
     const f = filter.trim().toLowerCase();
-    if (!f) return accounts;
-    return accounts.filter(
-      (a) => a.username.toLowerCase().includes(f) || (a.display_name ?? "").toLowerCase().includes(f),
-    );
-  }, [accounts, filter]);
+    if (f) {
+      list = list.filter(
+        (a) => a.username.toLowerCase().includes(f) || (a.display_name ?? "").toLowerCase().includes(f),
+      );
+    }
+    return list;
+  }, [accounts, filter, view, editedIds]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -169,6 +202,20 @@ function EditAccountsPage() {
                 placeholder="Filtrar @username…"
                 className="w-full h-9 pl-9 pr-3 bg-white/[0.04] border border-white/10 rounded-lg text-xs outline-none focus:border-brand/40 transition-colors placeholder:text-muted-foreground"
               />
+            </div>
+            {/* Filtros por visão e pasta */}
+            <div className="flex flex-wrap gap-1.5">
+              <SelPill label={`A editar (${toEditCount})`} active={view === "todo"} onClick={() => setView("todo")} />
+              <SelPill label={`Editadas (${editedCount})`} active={view === "editadas"} onClick={() => setView("editadas")} accent="emerald" />
+              <SelPill label={`Todas (${accounts?.length ?? 0})`} active={view === "todas"} onClick={() => setView("todas")} />
+              {(acctFolders ?? []).map((f) => (
+                <SelPill
+                  key={f.id}
+                  label={f.name}
+                  active={view === f.id}
+                  onClick={() => setView(f.id)}
+                />
+              ))}
             </div>
             <div className="flex items-center justify-between gap-2">
               <button
@@ -267,7 +314,7 @@ function EditAccountsPage() {
               <NameBioCard
                 count={selected.size}
                 accountIds={ids}
-                onDone={() => qc.invalidateQueries({ queryKey: ["twitter_accounts"] })}
+                onDone={refreshAfterEdit}
                 runFn={updateProfileFn}
               />
               <MediaApplyCard
@@ -276,7 +323,7 @@ function EditAccountsPage() {
                 accountIds={ids}
                 folders={profileFolders}
                 runFn={applyAvatarFn}
-                onDone={() => qc.invalidateQueries({ queryKey: ["twitter_accounts"] })}
+                onDone={refreshAfterEdit}
               />
               <MediaApplyCard
                 title="Banner / capa"
@@ -284,12 +331,12 @@ function EditAccountsPage() {
                 accountIds={ids}
                 folders={profileFolders}
                 runFn={applyBannerFn}
-                onDone={() => qc.invalidateQueries({ queryKey: ["twitter_accounts"] })}
+                onDone={refreshAfterEdit}
               />
               <UsernameCard
                 single={single}
                 runFn={updateUsernameFn}
-                onDone={() => qc.invalidateQueries({ queryKey: ["twitter_accounts"] })}
+                onDone={refreshAfterEdit}
               />
               <LogPanel accountIds={ids} />
             </>
@@ -316,12 +363,13 @@ function NameBioCard({
 }) {
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, ok: 0, fail: 0 });
 
   async function submit() {
-    if (!name.trim() && !bio.trim()) {
-      toast.info("Preencha nome ou bio antes de aplicar");
+    if (!name.trim() && !bio.trim() && !website.trim()) {
+      toast.info("Preencha nome, bio ou website antes de aplicar");
       return;
     }
     setBusy(true);
@@ -332,6 +380,7 @@ function NameBioCard({
         const payload: any = { accountIds: [accountIds[i]] };
         if (name.trim()) payload.name = name.trim();
         if (bio.trim()) payload.bio = bio.trim();
+        if (website.trim()) payload.website = website.trim();
         try {
           const { results } = await runFn({ data: payload });
           if (results[0]?.ok) ok++; else fail++;
@@ -347,7 +396,7 @@ function NameBioCard({
   }
 
   return (
-    <Card title="Nome de exibição & bio" subtitle={`${count} conta(s) selecionada(s) receberão os mesmos valores`}>
+    <Card title="Nome, bio & website" subtitle={`${count} conta(s) selecionada(s) receberão os mesmos valores`}>
       <div className="space-y-3">
         <div>
           <label className="text-xs text-muted-foreground">Nome de exibição</label>
@@ -372,13 +421,24 @@ function NameBioCard({
           />
           <p className="text-[10px] text-muted-foreground mt-1">{bio.length}/160</p>
         </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Website (link da bio)</label>
+          <input
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            maxLength={100}
+            placeholder="https://seu-link.com — deixe vazio para não alterar"
+            className="w-full mt-1 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-sm outline-none focus:border-brand/40 transition-colors"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">{website.length}/100</p>
+        </div>
         <button
           onClick={submit}
           disabled={busy}
           className="px-4 py-2.5 text-xs font-medium rounded-lg gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
         >
           {busy && <Loader2 className="w-3 h-3 animate-spin" />}
-          Aplicar nome/bio em {count} conta(s)
+          Aplicar nome/bio/website em {count} conta(s)
         </button>
         {busy && (
           <ProgressStrip done={progress.done} total={count} ok={progress.ok} fail={progress.fail} />
@@ -686,6 +746,35 @@ function Card({
       </div>
       <div className="relative">{children}</div>
     </div>
+  );
+}
+
+function SelPill({
+  label,
+  active,
+  onClick,
+  accent,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  accent?: "emerald";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "px-2.5 py-1 rounded-full text-[11px] border transition-colors whitespace-nowrap",
+        active
+          ? accent === "emerald"
+            ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-300"
+            : "bg-brand/20 border-brand/40 text-brand"
+          : "border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 

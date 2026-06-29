@@ -114,6 +114,20 @@ export function AccountModal({
     },
   });
 
+  // Proxies já vinculados a alguma conta ("em uso"). Só usamos proxy NOVO/livre.
+  const { data: usedProxyIds } = useQuery({
+    queryKey: ["proxies_in_use"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("twitter_accounts")
+        .select("proxy_id")
+        .not("proxy_id", "is", null);
+      return new Set((data ?? []).map((r: any) => r.proxy_id as string));
+    },
+  });
+  // Apenas proxies recém-adicionados / livres (não atribuídos a nenhuma conta).
+  const availableProxies = proxies.filter((p) => !usedProxyIds?.has(p.id));
+
   // Acha a pasta pelo nome ou cria uma nova; devolve o id (ou null se vazio).
   async function ensureFolderId(userId: string, name: string): Promise<string | null> {
     const n = name.trim();
@@ -206,6 +220,7 @@ export function AccountModal({
       toast.success(`Conta @${username} adicionada`);
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
       qc.invalidateQueries({ queryKey: ["account_folders"] });
+      qc.invalidateQueries({ queryKey: ["proxies_in_use"] });
       onOpenChange(false);
       setForm(empty);
       setResolved(null);
@@ -221,7 +236,8 @@ export function AccountModal({
   async function handleBulk() {
     const lines = bulkLines;
     if (!lines.length) return toast.error("Cole ao menos um token/cookie (um por linha).");
-    if (bulkProxyId === "__rotate__" && !proxies.length) return toast.error("Cadastre proxies primeiro.");
+    if (bulkProxyId === "__rotate__" && !availableProxies.length)
+      return toast.error("Nenhum proxy novo/livre disponível. Adicione proxies ou libere os em uso.");
 
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return toast.error("Não autenticado");
@@ -236,7 +252,9 @@ export function AccountModal({
         const { auth_token, cookie_string, ct0, username } = parseInput(lines[i]);
         if (!auth_token) { fails.push(`Linha ${i + 1}: sem token (auth_token) válido`); continue; }
         const proxy_id =
-          bulkProxyId === "__rotate__" ? proxies[i % proxies.length].id : bulkProxyId;
+          bulkProxyId === "__rotate__"
+            ? availableProxies[i % availableProxies.length].id
+            : bulkProxyId;
         try {
           if (ct0 && username) {
             // Já temos ct0 + username (combolist): insere direto, sem detectar pelo X.
@@ -275,6 +293,7 @@ export function AccountModal({
       setBulkProgress(100);
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
       qc.invalidateQueries({ queryKey: ["account_folders"] });
+      qc.invalidateQueries({ queryKey: ["proxies_in_use"] });
       if (ok) toast.success(`${ok} conta(s) adicionada(s)${fails.length ? ` · ${fails.length} falha(s)` : ""}`);
       if (fails.length) toast.error(fails.slice(0, 3).join(" • ") + (fails.length > 3 ? "…" : ""));
       if (ok && !fails.length) { onOpenChange(false); setBulkText(""); }
@@ -326,12 +345,15 @@ export function AccountModal({
               <Select value={bulkProxyId} onValueChange={setBulkProxyId}>
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__rotate__">Rodízio entre todos os proxies</SelectItem>
-                  {proxies.map((p) => (
+                  <SelectItem value="__rotate__">Rodízio entre os proxies novos</SelectItem>
+                  {availableProxies.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.ip}:{p.port}{p.label ? ` · ${p.label}` : ""}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {availableProxies.length} proxy(s) novo(s)/livre(s). Proxies já em uso não aparecem.
+              </p>
             </div>
             <FolderField value={folderName} onChange={setFolderName} folders={folders ?? []} />
             {(loading || bulkProgress > 0) && (
@@ -409,7 +431,12 @@ export function AccountModal({
                 <SelectValue placeholder="Selecione um proxy" />
               </SelectTrigger>
               <SelectContent>
-                {proxies.map((p) => (
+                {availableProxies.length === 0 && (
+                  <div className="px-2 py-3 text-xs text-muted-foreground">
+                    Nenhum proxy novo/livre. Adicione proxies na aba "Novas".
+                  </div>
+                )}
+                {availableProxies.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.ip}:{p.port}
                     {p.label ? ` · ${p.label}` : ""}
@@ -417,6 +444,9 @@ export function AccountModal({
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Só proxies novos/livres. Os que já estão em uso por outra conta não aparecem.
+            </p>
           </div>
 
           <FolderField value={folderName} onChange={setFolderName} folders={folders ?? []} />

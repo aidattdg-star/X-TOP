@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -8,7 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { postTweetToAccounts, schedulePostTweet, scheduleImageCampaign } from "@/lib/account-profile.functions";
-import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock } from "lucide-react";
+import { registerMediaFile } from "@/lib/media.functions";
+import { Send, Image as ImageIcon, Search, Check, Loader2, Users, Dice5, CheckCircle2, XCircle, ExternalLink, CalendarClock, Upload } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/post-tweet")({
   component: PostTweetPage,
@@ -22,9 +23,13 @@ type MediaFile = { id: string; storage_path: string; signed_url: string | null; 
 type PostResult = { username?: string; ok: boolean; url?: string; error?: string };
 
 function PostTweetPage() {
+  const qc = useQueryClient();
   const runPost = useServerFn(postTweetToAccounts);
   const runSchedule = useServerFn(schedulePostTweet);
   const runCampaign = useServerFn(scheduleImageCampaign);
+  const registerFn = useServerFn(registerMediaFile);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const [ritmo, setRitmo] = useState<"now" | "human" | "campaign">("now");
   const [minMin, setMinMin] = useState(2);
@@ -122,6 +127,53 @@ function PostTweetPage() {
     setSelected((s) =>
       allShownOn ? s.filter((id) => !shown.some((a) => a.id === id)) : [...new Set([...s, ...shown.map((a) => a.id)])],
     );
+
+  // Envia imagens direto pra pasta selecionada, sem sair da tela de postar.
+  async function uploadToFolder(fileList: FileList | null) {
+    if (!fileList || !fileList.length) return;
+    if (!mediaFolderId) return toast.error("Escolha a pasta da biblioteca primeiro.");
+    const arr = Array.from(fileList);
+    setUploading(true);
+    const tId = toast.loading(`Enviando ${arr.length} imagem(ns)…`);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const userId = u.user?.id;
+      if (!userId) { toast.error("Sessão expirada", { id: tId }); return; }
+
+      let ok = 0, fail = 0;
+      for (const file of arr) {
+        if (!file.type.startsWith("image/")) { toast.error(`${file.name}: só imagens`); fail++; continue; }
+        if (file.size > 8 * 1024 * 1024) { toast.error(`${file.name}: máx 8MB`); fail++; continue; }
+        try {
+          const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+          const path = `${userId}/${mediaFolderId}/${crypto.randomUUID()}.${ext}`;
+          const { error: upErr } = await supabase.storage.from("media").upload(path, file, {
+            contentType: file.type, upsert: false,
+          });
+          if (upErr) throw new Error(upErr.message);
+          await registerFn({
+            data: {
+              folderId: mediaFolderId,
+              storagePath: path,
+              originalFilename: file.name,
+              mimeType: file.type,
+              sizeBytes: file.size,
+            },
+          });
+          ok++;
+        } catch (e) {
+          toast.error(`${file.name}: ${e instanceof Error ? e.message : "falha"}`);
+          fail++;
+        }
+      }
+      toast.success(`${ok} enviada(s)${fail ? `, ${fail} falha(s)` : ""}`, { id: tId });
+      qc.invalidateQueries({ queryKey: ["media_file_counts"] });
+      qc.invalidateQueries({ queryKey: ["media_files_post", mediaFolderId] });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   async function dispatch() {
     if (!selected.length) return toast.error("Selecione ao menos uma conta.");
@@ -274,9 +326,30 @@ function PostTweetPage() {
                   Crie pastas em Mídias → categoria "Mídias para tweets" (ex.: modelo 1, 2, 3).
                 </p>
               )}
-              {mediaFolderCount === 0 && (
+              {mediaFolderId && (
+                <div className="mt-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => uploadToFolder(e.target.files)}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-brand/40 bg-brand/10 text-foreground hover:bg-brand/20 transition-colors disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    {uploading ? "Enviando…" : "Adicionar imagem nesta pasta"}
+                  </button>
+                </div>
+              )}
+              {mediaFolderId && mediaFolderCount === 0 && (
                 <p className="mt-1 text-[10px] text-amber-400">
-                  ⚠ Pasta vazia — envie imagens nessa pasta em Mídias.
+                  ⚠ Pasta vazia — use o botão acima para enviar imagens.
                 </p>
               )}
             </div>

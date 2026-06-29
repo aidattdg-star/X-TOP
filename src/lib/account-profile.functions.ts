@@ -86,7 +86,7 @@ async function logProfile(
   supabase: any,
   userId: string,
   accountId: string,
-  field: "avatar" | "banner" | "name" | "bio" | "username",
+  field: "avatar" | "banner" | "name" | "bio" | "username" | "website",
   oldValue: string | null,
   newValue: string | null,
   status: "ok" | "failed",
@@ -216,13 +216,15 @@ export const updateAccountsProfile = createServerFn({ method: "POST" })
     accountIds: string[];
     name?: string;
     bio?: string;
+    website?: string;
   }) =>
     z.object({
       accountIds: z.array(z.string().uuid()).min(1).max(100),
       name: z.string().trim().max(50).optional(),
       bio: z.string().trim().max(160).optional(),
-    }).refine((v) => v.name !== undefined || v.bio !== undefined, {
-      message: "Forneça pelo menos name ou bio",
+      website: z.string().trim().max(100).optional(),
+    }).refine((v) => v.name !== undefined || v.bio !== undefined || v.website !== undefined, {
+      message: "Forneça pelo menos name, bio ou website",
     }).parse(input),
   )
   .handler(async ({ data, context }) => {
@@ -232,7 +234,7 @@ export const updateAccountsProfile = createServerFn({ method: "POST" })
     for (const accountId of data.accountIds) {
       try {
         const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
-        await updateProfile(tokens, { name: data.name, description: data.bio });
+        await updateProfile(tokens, { name: data.name, description: data.bio, url: data.website });
         const patch: any = { updated_at: new Date().toISOString() };
         if (data.name !== undefined) patch.display_name = data.name;
         await context.supabase.from("twitter_accounts").update(patch).eq("id", accountId);
@@ -244,6 +246,10 @@ export const updateAccountsProfile = createServerFn({ method: "POST" })
         if (data.bio !== undefined) {
           await logProfile(context.supabase, context.userId, accountId, "bio",
             null, data.bio, "ok");
+        }
+        if (data.website !== undefined) {
+          await logProfile(context.supabase, context.userId, accountId, "website",
+            null, data.website, "ok");
         }
         results.push({ accountId, ok: true });
       } catch (e) {
