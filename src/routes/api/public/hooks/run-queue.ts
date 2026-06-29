@@ -613,12 +613,14 @@ function humanizeShortContent(text: string, seed: string): string {
   if (!isLinkOnlyOrShort) return trimmed;
 
   const hash = hashSeed(`${seed}:${Date.now()}:${Math.random()}`);
+  // IMPORTANTE: usar >>> (shift SEM sinal). Com >> e hash >= 2^31 o índice fica
+  // negativo e POOL[idx] vira undefined (bug "🔵undefined" no texto).
   const e1 = HUMANIZE_EMOJI_POOL[hash % HUMANIZE_EMOJI_POOL.length];
-  const useTwo = ((hash >> 5) & 1) === 1;
-  const e2 = useTwo ? HUMANIZE_EMOJI_POOL[(hash >> 8) % HUMANIZE_EMOJI_POOL.length] : "";
-  const combo = useTwo && e1 !== e2 ? `${e1}${e2}` : e1;
+  const useTwo = ((hash >>> 5) & 1) === 1;
+  const e2 = useTwo ? HUMANIZE_EMOJI_POOL[(hash >>> 8) % HUMANIZE_EMOJI_POOL.length] : "";
+  const combo = useTwo && e1 && e2 && e1 !== e2 ? `${e1}${e2}` : (e1 ?? e2 ?? "");
 
-  const position = (hash >> 11) % 5;
+  const position = (hash >>> 11) % 5;
   let candidate: string;
   switch (position) {
     case 0: candidate = `${trimmed} ${combo}`; break;
@@ -653,7 +655,8 @@ function addNaturalDuplicateVariant(text: string, seed: string, attempt: number)
   const emojis = ["👇", "👀", "🔥", "💬", "✅", "📌", "✨", "🤝"];
   const punctuation = ["", ".", "!", "!!", "…"];
   const hash = hashSeed(`${seed}:${attempt}:${Date.now()}`);
-  const suffix = `${suffixes[hash % suffixes.length]} ${emojis[(hash >> 3) % emojis.length]}${punctuation[(hash >> 6) % punctuation.length]}`;
+  // >>> sem sinal: evita índice negativo -> "undefined" no texto.
+  const suffix = `${suffixes[hash % suffixes.length]} ${emojis[(hash >>> 3) % emojis.length]}${punctuation[(hash >>> 6) % punctuation.length]}`;
   return appendWithinTweetLimit(text, `\n\n${suffix}`);
 }
 
