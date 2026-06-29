@@ -192,6 +192,14 @@
   }
 }
 
+/* Dropdown nativo (lista de <option>) legível no tema escuro — alguns navegadores
+   (Opera/Chromium em certos casos) ignoram o color-scheme na lista aberta. */
+select option,
+select optgroup {
+  background-color: #1a1726;
+  color: #ededf2;
+}
+
 /* Reusable premium helpers */
 .text-gradient {
   background: linear-gradient(100deg, var(--color-foreground), oklch(0.8 0.12 285) 55%, oklch(0.82 0.1 215));
