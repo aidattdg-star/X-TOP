@@ -13,6 +13,7 @@ import { Route as PendingRouteImport } from './routes/pending'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedPostTweetRouteImport } from './routes/_authenticated/post-tweet'
 import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedMediaRouteImport } from './routes/_authenticated/media'
 import { Route as AuthenticatedMassEngageRouteImport } from './routes/_authenticated/mass-engage'
@@ -48,6 +49,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedPostTweetRoute = AuthenticatedPostTweetRouteImport.update({
+  id: '/post-tweet',
+  path: '/post-tweet',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
   id: '/monitoring',
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/mass-engage': typeof AuthenticatedMassEngageRoute
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
+  '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
@@ -170,6 +177,7 @@ export interface FileRoutesByTo {
   '/mass-engage': typeof AuthenticatedMassEngageRoute
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
+  '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/automations': typeof AuthenticatedAutomationsIndexRoute
   '/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
@@ -193,6 +201,7 @@ export interface FileRoutesById {
   '/_authenticated/mass-engage': typeof AuthenticatedMassEngageRoute
   '/_authenticated/media': typeof AuthenticatedMediaRoute
   '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
+  '/_authenticated/post-tweet': typeof AuthenticatedPostTweetRoute
   '/_authenticated/automations/': typeof AuthenticatedAutomationsIndexRoute
   '/_authenticated/automations/builder/$id': typeof AuthenticatedAutomationsBuilderIdRoute
   '/api/public/hooks/education': typeof ApiPublicHooksEducationRoute
@@ -216,6 +225,7 @@ export interface FileRouteTypes {
     | '/mass-engage'
     | '/media'
     | '/monitoring'
+    | '/post-tweet'
     | '/automations/'
     | '/automations/builder/$id'
     | '/api/public/hooks/education'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/mass-engage'
     | '/media'
     | '/monitoring'
+    | '/post-tweet'
     | '/automations'
     | '/automations/builder/$id'
     | '/api/public/hooks/education'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/_authenticated/mass-engage'
     | '/_authenticated/media'
     | '/_authenticated/monitoring'
+    | '/_authenticated/post-tweet'
     | '/_authenticated/automations/'
     | '/_authenticated/automations/builder/$id'
     | '/api/public/hooks/education'
@@ -305,6 +317,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/post-tweet': {
+      id: '/_authenticated/post-tweet'
+      path: '/post-tweet'
+      fullPath: '/post-tweet'
+      preLoaderRoute: typeof AuthenticatedPostTweetRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/monitoring': {
       id: '/_authenticated/monitoring'
@@ -452,6 +471,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedMassEngageRoute: typeof AuthenticatedMassEngageRoute
   AuthenticatedMediaRoute: typeof AuthenticatedMediaRoute
   AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
+  AuthenticatedPostTweetRoute: typeof AuthenticatedPostTweetRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -465,6 +485,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedMassEngageRoute: AuthenticatedMassEngageRoute,
   AuthenticatedMediaRoute: AuthenticatedMediaRoute,
   AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
+  AuthenticatedPostTweetRoute: AuthenticatedPostTweetRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

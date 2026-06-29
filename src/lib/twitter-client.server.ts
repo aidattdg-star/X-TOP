@@ -334,16 +334,39 @@ function parseUserResult(result: any, fallbackScreenName: string) {
   };
 }
 
-export async function postTweet(tokens: AuthTokens, text: string, _d?: Dispatcher) {
+/** Sobe uma imagem pro X (cookie-auth) e devolve o media_id_string.
+ *  `imageBase64` = base64 sem prefixo data:. Rota pelo proxy quando há dispatcher. */
+export async function uploadTweetMedia(
+  tokens: AuthTokens,
+  imageBase64: string,
+  d?: Dispatcher,
+): Promise<string> {
+  const path = "media/upload.json";
+  const body = new URLSearchParams({ media_data: imageBase64, media_category: "tweet_image" }).toString();
+  const h = await headers(tokens, "POST", `/1.1/${path}`);
+  h["content-type"] = "application/x-www-form-urlencoded";
+  const res = await doFetch(`https://upload.twitter.com/1.1/${path}`, { method: "POST", headers: h, body }, d);
+  applySetCookies(tokens, res);
+  const text = await res.text();
+  let json: any;
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  if (!res.ok || json?.errors) throw xApiError("X media/upload", res.status, text, json);
+  const id = json?.media_id_string;
+  if (!id) throw new Error(`Upload de mídia falhou: ${text.slice(0, 160)}`);
+  return String(id);
+}
+
+export async function postTweet(tokens: AuthTokens, text: string, d?: Dispatcher, mediaIds?: string[]) {
+  const media_entities = (mediaIds ?? []).map((id) => ({ media_id: id, tagged_users: [] }));
   const json = await gqlPost("CreateTweet", tokens, {
     variables: {
       tweet_text: text,
       dark_request: false,
-      media: { media_entities: [], possibly_sensitive: false },
+      media: { media_entities, possibly_sensitive: false },
       semantic_annotation_ids: [],
     },
     features: TWEET_FEATURES,
-  });
+  }, d);
   const result = json?.data?.create_tweet?.tweet_results?.result;
   const restId = result?.rest_id ?? result?.tweet?.rest_id;
   const reason = result?.reason || result?.result?.reason;

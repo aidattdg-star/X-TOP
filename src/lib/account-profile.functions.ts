@@ -301,3 +301,72 @@ export const updateAccountUsername = createServerFn({ method: "POST" })
       throw new Error(msg);
     }
   });
+
+// ============================================================================
+// POSTAR TWEET (texto + mídia opcional) em várias contas
+// ============================================================================
+export const postTweetToAccounts = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: {
+    accountIds: string[];
+    text: string;
+    mode?: "same" | "random";
+    mediaFileId?: string;
+    folderId?: string;
+  }) =>
+    z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(200),
+      text: z.string().max(280),
+      mode: z.enum(["same", "random"]).optional(),
+      mediaFileId: z.string().uuid().optional(),
+      folderId: z.string().uuid().optional(),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const text = data.text.trim();
+    const withMedia = !!(data.folderId || data.mediaFileId);
+    if (!text && !withMedia) throw new Error("Escreva o texto ou escolha uma mídia.");
+
+    const mediaMap = withMedia
+      ? await resolveFilesPerAccount(context.supabase, context.userId, data.accountIds, {
+          mode: data.mode ?? "random",
+          mediaFileId: data.mediaFileId,
+          folderId: data.folderId,
+        })
+      : null;
+
+    const { uploadTweetMedia, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
+
+    const results: Array<{ accountId: string; username?: string; ok: boolean; url?: string; error?: string }> = [];
+    for (const accountId of data.accountIds) {
+      try {
+        const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
+
+        // proxy da conta (escrita/upload SEMPRE pelo proxy)
+        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
+        const { data: pa } = await context.supabase
+          .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+        if (pa?.proxy_id) {
+          const { data: p } = await context.supabase
+            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
+          proxy = p as any;
+        }
+        const dispatcher = buildDispatcher(proxy);
+
+        let mediaIds: string[] | undefined;
+        if (mediaMap) {
+          const file = mediaMap.get(accountId)!;
+          const b64 = await downloadAsBase64(context.supabase, file.storage_path);
+          const mid = await uploadTweetMedia(tokens, b64, dispatcher);
+          mediaIds = [mid];
+        }
+
+        const r = await postTweet(tokens, text, dispatcher, mediaIds);
+        await persistRefreshed(context.supabase, accountId, tokens);
+        results.push({ accountId, username: acc.username, ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` });
+      } catch (e) {
+        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
+  });

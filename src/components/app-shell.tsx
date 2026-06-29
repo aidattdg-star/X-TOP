@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Menu,
   X,
+  Send,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const nav = [
   { to: "/accounts", label: "Contas & Proxies", icon: Users },
   { to: "/edit-accounts", label: "Editar contas", icon: UserCog },
   { to: "/media", label: "Mídias", icon: ImageIcon },
+  { to: "/post-tweet", label: "Postar tweet", icon: Send },
   { to: "/automations", label: "Automações", icon: Workflow },
   { to: "/mass-engage", label: "RT & Like massa", icon: Rocket },
   { to: "/education", label: "Educar conta", icon: GraduationCap },
