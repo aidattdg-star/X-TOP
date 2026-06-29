@@ -363,8 +363,8 @@ function Dashboard() {
         </div>
 
         {/* Desempenho (área) + medidor */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-start">
-          <Panel title="Views & desempenho" icon={Activity} className="lg:col-span-2">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 items-stretch">
+          <Panel title="Views & desempenho" icon={Activity} className="lg:col-span-2" bodyFill>
             <div className="px-6 pt-5 pb-1 flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-light text-foreground tabular-nums leading-none">
@@ -382,7 +382,7 @@ function Dashboard() {
                 <p className="mt-1 text-[11px] text-muted-foreground">ações · últimos {days}d</p>
               </div>
             </div>
-            <div className="h-52 px-2 pb-3 pt-3">
+            <div className="flex-1 min-h-[180px] px-2 pb-3 pt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={activity} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
                   <defs>
@@ -622,14 +622,14 @@ function MetricCard({
   );
 }
 
-function Panel({ title, icon: Icon, children, className = "" }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string }) {
+function Panel({ title, icon: Icon, children, className = "", bodyFill = false }: { title: string; icon: LucideIcon; children: React.ReactNode; className?: string; bodyFill?: boolean }) {
   return (
-    <div className={`led-edge rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden ${className}`}>
+    <div className={`led-edge rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden ${bodyFill ? "flex flex-col" : ""} ${className}`}>
       <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center gap-2">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
       </div>
-      <div>{children}</div>
+      <div className={bodyFill ? "flex-1 min-h-0 flex flex-col" : ""}>{children}</div>
     </div>
   );
 }
