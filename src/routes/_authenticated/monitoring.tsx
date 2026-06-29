@@ -17,7 +17,12 @@ import {
   Plus,
   RefreshCw,
   XCircle,
+  Trash2,
+  Pause,
+  Play,
+  Ban,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CreateMonitorModal } from "@/components/monitoring/create-monitor-modal";
 
@@ -292,6 +297,7 @@ function MonitoringPage() {
               monitor={m}
               expanded={expanded.has(m.flow.id)}
               onToggle={() => toggle(m.flow.id)}
+              onChanged={refreshAll}
             />
           ))
         )}
@@ -310,15 +316,77 @@ function MonitorCard({
   monitor: m,
   expanded,
   onToggle,
+  onChanged,
 }: {
   monitor: MonitorViewModel;
   expanded: boolean;
   onToggle: () => void;
+  onChanged: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
   const lastCheckedAgo = m.state?.last_checked_at ? timeAgo(m.state.last_checked_at) : "nunca";
   const isStale =
     m.state?.last_checked_at &&
     Date.now() - Date.parse(m.state.last_checked_at) > (m.intervalMin + 5) * 60_000;
+  const active = m.flow.status === "active";
+
+  async function cancelPendingTasks(): Promise<number> {
+    const { data } = await supabase
+      .from("execution_queue")
+      .update({ status: "failed", last_error: "Cancelado manualmente no monitor", updated_at: new Date().toISOString() })
+      .eq("flow_id", m.flow.id)
+      .in("status", ["pending", "processing"])
+      .select("id");
+    return (data ?? []).length;
+  }
+
+  async function toggleActive() {
+    setBusy(true);
+    try {
+      await supabase.from("automation_flows").update({ status: active ? "draft" : "active" }).eq("id", m.flow.id);
+      if (active) {
+        const n = await cancelPendingTasks();
+        toast.success(`Monitor pausado${n ? ` · ${n} tarefa(s) pendente(s) cancelada(s)` : ""}`);
+      } else {
+        toast.success("Monitor ativado");
+      }
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelTasks() {
+    setBusy(true);
+    try {
+      const n = await cancelPendingTasks();
+      toast.success(n ? `${n} tarefa(s) pendente(s) cancelada(s)` : "Nenhuma tarefa pendente");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteMonitor() {
+    if (!confirm(`Excluir o monitor @${m.handle || "(vazio)"}? Remove o monitor, cancela as tarefas pendentes e apaga o estado. Suas contas NÃO são apagadas.`)) return;
+    setBusy(true);
+    try {
+      await cancelPendingTasks();
+      await supabase.from("flow_monitor_state").delete().eq("flow_id", m.flow.id);
+      const { error } = await supabase.from("automation_flows").delete().eq("id", m.flow.id);
+      if (error) throw error;
+      toast.success("Monitor excluído");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao excluir");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="border border-border bg-surface rounded-lg overflow-hidden">
@@ -367,6 +435,25 @@ function MonitorCard({
 
       {expanded && (
         <div className="border-t border-border bg-background/40 px-5 py-4 space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={toggleActive} disabled={busy}>
+              {active ? <Pause className="h-3.5 w-3.5 mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+              {active ? "Pausar" : "Ativar"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={cancelTasks} disabled={busy} title="Cancela as ações já enfileiradas deste monitor (não executa mais)">
+              <Ban className="h-3.5 w-3.5 mr-1.5" /> Cancelar tarefas pendentes
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={deleteMonitor}
+              disabled={busy}
+              className="border-destructive/40 text-destructive hover:bg-destructive/10 ml-auto"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Excluir monitor
+            </Button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
             <InfoBlock label="Conta leitora">
               {m.reader ? (

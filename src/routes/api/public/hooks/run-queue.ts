@@ -315,6 +315,20 @@ async function handle(): Promise<Response> {
           continue;
         }
 
+        // Conta banida/suspensa: cancela esta E todas as outras tarefas pendentes da conta.
+        if (msg.startsWith("__BANNED__:")) {
+          const st = msg.slice("__BANNED__:".length);
+          await supabaseAdmin
+            .from("execution_queue")
+            .update({ status: "failed", last_error: `Conta ${st} — tarefa cancelada (sem novas tentativas).`, updated_at: new Date().toISOString() })
+            .eq("id", task.id);
+          const canceled = await cancelPendingForAccount(supabaseAdmin, task.twitter_account_id, `Conta ${st} — tarefas canceladas automaticamente.`);
+          await log(supabaseAdmin, task.user_id, task.flow_id, "warn",
+            `Conta ${st}: tarefa cancelada${canceled ? ` + ${canceled} pendente(s) cancelada(s)` : ""} (não tenta mais).`, task.twitter_account_id);
+          result.failed++;
+          continue;
+        }
+
         const attempt = (task.attempts ?? 0) + 1; // valor já persistido no claim
         const MAX_RETRY = 4;
 
@@ -344,8 +358,10 @@ async function handle(): Promise<Response> {
             .from("execution_queue")
             .update({ status: "failed", last_error: `Perfil caiu (die): ${msg.slice(0, 140)}`, updated_at: new Date().toISOString() })
             .eq("id", task.id);
+          // some também as outras tarefas pendentes dessa conta — não adianta tentar.
+          const canceled = await cancelPendingForAccount(supabaseAdmin, task.twitter_account_id, "Conta caiu (die) — tarefas canceladas automaticamente.");
           await log(supabaseAdmin, task.user_id, task.flow_id, "error",
-            `Perfil marcado como DIE (conta + proxy): ${msg.slice(0, 120)}`, task.twitter_account_id);
+            `Perfil marcado como DIE (conta + proxy)${canceled ? ` + ${canceled} pendente(s) cancelada(s)` : ""}: ${msg.slice(0, 120)}`, task.twitter_account_id);
           result.failed++;
           continue;
         }
@@ -454,10 +470,15 @@ async function runTask(admin: any, task: any) {
 
   const { data: acc, error } = await admin
     .from("twitter_accounts")
-    .select("id, username, auth_tokens, proxy_id, warming_until")
+    .select("id, username, auth_tokens, proxy_id, warming_until, status")
     .eq("id", task.twitter_account_id)
     .maybeSingle();
   if (error || !acc) throw new Error("Conta não encontrada");
+
+  // Conta banida/suspensa: NÃO faz request nenhum — cancela a tarefa de imediato.
+  if (acc.status === "banned" || acc.status === "suspended") {
+    throw new Error(`__BANNED__:${acc.status}`);
+  }
 
   // Cadeado de aquecimento: conta travada não executa ações de spam — adia a tarefa.
   if (acc.warming_until && Date.parse(acc.warming_until) > Date.now()) {
@@ -822,6 +843,22 @@ function isProfileDeadError(msg: string): boolean {
 }
 
 // Marca o perfil como die (banido) e move o proxy vinculado para die também.
+// Cancela todas as tarefas ainda pendentes/processando de uma conta (ex.: conta caiu/banida).
+async function cancelPendingForAccount(admin: any, accountId?: string | null, reason = "Tarefa cancelada."): Promise<number> {
+  if (!accountId) return 0;
+  try {
+    const { data } = await admin
+      .from("execution_queue")
+      .update({ status: "failed", last_error: reason, updated_at: new Date().toISOString() })
+      .eq("twitter_account_id", accountId)
+      .in("status", ["pending", "processing"])
+      .select("id");
+    return (data ?? []).length;
+  } catch {
+    return 0;
+  }
+}
+
 async function markProfileDead(admin: any, accountId?: string | null): Promise<void> {
   if (!accountId) return;
   try {
