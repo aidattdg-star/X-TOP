@@ -67,6 +67,9 @@
 :root {
   --radius: 0.85rem;
 
+  /* Renderiza controles nativos (select/dropdown, scrollbar, date picker) no escuro */
+  color-scheme: dark;
+
   /* Brand accents — violet → cyan */
   --brand: oklch(0.66 0.2 285);
   --brand-2: oklch(0.74 0.13 215);
@@ -121,6 +124,7 @@
 
 /* Optional light theme kept for the .light escape hatch */
 .light {
+  color-scheme: light;
   --background: oklch(0.985 0.002 280);
   --foreground: oklch(0.2 0.02 280);
   --ink: oklch(0.12 0 0);
