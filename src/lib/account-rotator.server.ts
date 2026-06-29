@@ -35,7 +35,19 @@ export async function markAccountUsed(admin: any, accountId: string) {
     .eq("id", accountId);
 }
 
-/** Decide se uma mensagem de erro indica rate-limit/cookies inválidos. */
+/** Conta TRAVADA/bloqueada pelo X (precisa verificação) — não adianta insistir. */
+export function isLockedError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("temporarily locked") ||
+    m.includes("account is locked") ||
+    m.includes("denied by access control") ||
+    m.includes("malicious activity") ||
+    m.includes("ldapgroup")
+  );
+}
+
+/** Decide se uma mensagem de erro indica rate-limit/cookies/bloqueio — pula a conta e tenta outra. */
 export function isRateLimitOrAuthError(msg: string): boolean {
   const m = msg.toLowerCase();
   return (
@@ -49,7 +61,8 @@ export function isRateLimitOrAuthError(msg: string): boolean {
     m.includes("timeout") ||
     m.includes("cookies") ||
     m.includes("ct0") ||
-    m.includes("auth_token")
+    m.includes("auth_token") ||
+    isLockedError(m)
   );
 }
 
@@ -129,6 +142,16 @@ export async function withRotator<T>(
       return { ok: true, value, account: acc };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (isLockedError(msg)) {
+        // Conta TRAVADA pelo X: não adianta insistir — descansa 6h e sinaliza LIMITADA.
+        await markAccountCooldown(admin, acc.id, 360);
+        try {
+          await admin.from("twitter_accounts")
+            .update({ limited_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq("id", acc.id);
+        } catch { /* coluna pode não existir */ }
+        continue; // tenta a próxima conta
+      }
       if (isRateLimitOrAuthError(msg)) {
         await markAccountCooldown(admin, acc.id);
         continue;
