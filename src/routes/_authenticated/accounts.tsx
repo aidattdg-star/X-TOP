@@ -9,10 +9,10 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
-import { testAccountsOnline } from "@/lib/account-profile.functions";
+import { testAccountsOnline, checkShadowban } from "@/lib/account-profile.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
 import { cn } from "@/lib/utils";
 
@@ -32,8 +32,35 @@ function AccountsPage() {
   const runTestProxy = useServerFn(testProxyConnection);
   const runTestPost = useServerFn(testPostTweets);
   const runTestAccountsOnline = useServerFn(testAccountsOnline);
+  const runCheckShadowban = useServerFn(checkShadowban);
   const [testingAccounts, setTestingAccounts] = useState(false);
   const [acctTestDone, setAcctTestDone] = useState({ done: 0, total: 0, die: 0 });
+  const [checkingSb, setCheckingSb] = useState(false);
+  const [sbDone, setSbDone] = useState({ done: 0, total: 0, sb: 0 });
+
+  // Verifica shadowban (search ban) em lotes; quem estiver em shadowban vai pra Quarentena.
+  async function checkAllShadowban() {
+    const ids = (accounts ?? []).filter((a: any) => a.status !== "banned").map((a: any) => a.id as string);
+    if (!ids.length) return toast.info("Nenhuma conta pra verificar.");
+    if (!confirm(`Verificar shadowban em ${ids.length} conta(s)? As que estiverem em shadowban vão pra "Quarentena". (testa quem tem tweets recentes)`)) return;
+    setCheckingSb(true);
+    setSbDone({ done: 0, total: ids.length, sb: 0 });
+    let sb = 0, ok = 0, semTweets = 0, erro = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 10) {
+        const chunk = ids.slice(i, i + 10);
+        try {
+          const r = await runCheckShadowban({ data: { accountIds: chunk } });
+          sb += r.shadowban; ok += r.ok; semTweets += r.sem_tweets; erro += r.erro;
+        } catch { /* lote falhou — segue */ }
+        setSbDone({ done: Math.min(i + 10, ids.length), total: ids.length, sb });
+        qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+      }
+      toast.success(`Shadowban: ${sb} em quarentena · ${ok} ok · ${semTweets} sem tweets${erro ? ` · ${erro} erro` : ""}`);
+    } finally {
+      setCheckingSb(false);
+    }
+  }
 
   // Testa TODAS as contas (não-banidas) em lotes; quem der die vai pra Suspensas.
   async function testAllAccounts() {
@@ -270,6 +297,10 @@ function AccountsPage() {
               {testingAccounts ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Activity className="h-4 w-4 mr-2" strokeWidth={1.5} />}
               {testingAccounts ? `Testando ${acctTestDone.done}/${acctTestDone.total}${acctTestDone.die ? ` · ${acctTestDone.die} die` : ""}` : "Testar contas"}
             </Button>
+            <Button variant="outline" onClick={checkAllShadowban} disabled={checkingSb || !accounts?.length}>
+              {checkingSb ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <EyeOff className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+              {checkingSb ? `Shadowban ${sbDone.done}/${sbDone.total}${sbDone.sb ? ` · ${sbDone.sb}` : ""}` : "Verificar shadowban"}
+            </Button>
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy
             </Button>
@@ -292,14 +323,14 @@ function AccountsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <FolderCard
               label="Todas as contas"
-              count={accounts.filter((a) => !isSuspended(a)).length}
+              count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a))).length}
               onClick={() => setFolderFilter("__all__")}
               all
             />
-            {accounts.some((a) => !isSuspended(a) && !(a as any).folder_id) && (
+            {accounts.some((a) => (!isSuspended(a) && !isQuarantine(a)) && !(a as any).folder_id) && (
               <FolderCard
                 label="Sem pasta"
-                count={accounts.filter((a) => !isSuspended(a) && !(a as any).folder_id).length}
+                count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a)) && !(a as any).folder_id).length}
                 onClick={() => setFolderFilter("__none__")}
               />
             )}
@@ -307,7 +338,7 @@ function AccountsPage() {
               <FolderCard
                 key={f.id}
                 label={f.name}
-                count={accounts.filter((a) => !isSuspended(a) && (a as any).folder_id === f.id).length}
+                count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a)) && (a as any).folder_id === f.id).length}
                 onClick={() => setFolderFilter(f.id)}
                 onDelete={() => deleteFolder(f.id, f.name)}
               />
@@ -318,6 +349,14 @@ function AccountsPage() {
                 count={accounts.filter(isSuspended).length}
                 onClick={() => setFolderFilter("__banned__")}
                 suspended
+              />
+            )}
+            {accounts.some(isQuarantine) && (
+              <FolderCard
+                label="Quarentena (shadowban)"
+                count={accounts.filter(isQuarantine).length}
+                onClick={() => setFolderFilter("__quarantine__")}
+                quarantine
               />
             )}
             <button
@@ -340,10 +379,10 @@ function AccountsPage() {
             >
               <ChevronLeft className="h-3.5 w-3.5" /> Pastas
             </button>
-            <FolderPill label="Todas" count={accounts.filter((a) => !isSuspended(a)).length} active={folderFilter === "__all__"} onClick={() => setFolderFilter("__all__")} />
+            <FolderPill label="Todas" count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a))).length} active={folderFilter === "__all__"} onClick={() => setFolderFilter("__all__")} />
             <FolderPill
               label="Sem pasta"
-              count={accounts.filter((a) => !isSuspended(a) && !(a as any).folder_id).length}
+              count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a)) && !(a as any).folder_id).length}
               active={folderFilter === "__none__"}
               onClick={() => setFolderFilter("__none__")}
             />
@@ -351,7 +390,7 @@ function AccountsPage() {
               <FolderPill
                 key={f.id}
                 label={f.name}
-                count={accounts.filter((a) => !isSuspended(a) && (a as any).folder_id === f.id).length}
+                count={accounts.filter((a) => (!isSuspended(a) && !isQuarantine(a)) && (a as any).folder_id === f.id).length}
                 active={folderFilter === f.id}
                 onClick={() => setFolderFilter(f.id)}
                 onDelete={() => deleteFolder(f.id, f.name)}
@@ -363,6 +402,14 @@ function AccountsPage() {
                 count={accounts.filter(isSuspended).length}
                 active={folderFilter === "__banned__"}
                 onClick={() => setFolderFilter("__banned__")}
+              />
+            )}
+            {accounts.some(isQuarantine) && (
+              <FolderPill
+                label="Quarentena"
+                count={accounts.filter(isQuarantine).length}
+                active={folderFilter === "__quarantine__"}
+                onClick={() => setFolderFilter("__quarantine__")}
               />
             )}
             <button
@@ -390,13 +437,15 @@ function AccountsPage() {
             ?.filter((acc) =>
               folderFilter === "__banned__"
                 ? isSuspended(acc)
-                : isSuspended(acc)
-                  ? false
-                  : folderFilter === "__all__"
-                    ? true
-                    : folderFilter === "__none__"
-                      ? !(acc as any).folder_id
-                      : (acc as any).folder_id === folderFilter,
+                : folderFilter === "__quarantine__"
+                  ? isQuarantine(acc)
+                  : isSuspended(acc) || isQuarantine(acc)
+                    ? false
+                    : folderFilter === "__all__"
+                      ? true
+                      : folderFilter === "__none__"
+                        ? !(acc as any).folder_id
+                        : (acc as any).folder_id === folderFilter,
             )
             .map((acc) => (
             <div key={acc.id} className="border border-border bg-surface rounded-lg p-5">
@@ -726,6 +775,11 @@ function isSuspended(a: { status?: string | null }): boolean {
   return a?.status === "banned";
 }
 
+// Em quarentena = detectada em shadowban (e não banida). Sai das contagens normais.
+function isQuarantine(a: { status?: string | null; shadowban_at?: string | null }): boolean {
+  return !!a?.shadowban_at && a?.status !== "banned";
+}
+
 function FolderCard({
   label,
   count,
@@ -733,6 +787,7 @@ function FolderCard({
   onDelete,
   all,
   suspended,
+  quarantine,
 }: {
   label: string;
   count: number;
@@ -740,23 +795,28 @@ function FolderCard({
   onDelete?: () => void;
   all?: boolean;
   suspended?: boolean;
+  quarantine?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "group relative text-left rounded-2xl border bg-surface p-4 transition-all hover:-translate-y-0.5",
-        suspended ? "border-destructive/30 hover:border-destructive/60" : "border-border hover:border-brand/40",
+        suspended ? "border-destructive/30 hover:border-destructive/60"
+          : quarantine ? "border-amber-500/30 hover:border-amber-500/60"
+          : "border-border hover:border-brand/40",
       )}
     >
       <div className="flex items-start justify-between">
         <span
           className={cn(
             "grid h-10 w-10 place-items-center rounded-xl border border-white/10",
-            suspended ? "bg-destructive/15 text-destructive" : all ? "gradient-brand text-white" : "bg-white/[0.06] text-brand",
+            suspended ? "bg-destructive/15 text-destructive"
+              : quarantine ? "bg-amber-500/15 text-amber-400"
+              : all ? "gradient-brand text-white" : "bg-white/[0.06] text-brand",
           )}
         >
-          {suspended ? <Ban className="h-5 w-5" strokeWidth={1.75} /> : all ? <Layers className="h-5 w-5" strokeWidth={1.75} /> : <Folder className="h-5 w-5" strokeWidth={1.75} />}
+          {suspended ? <Ban className="h-5 w-5" strokeWidth={1.75} /> : quarantine ? <EyeOff className="h-5 w-5" strokeWidth={1.75} /> : all ? <Layers className="h-5 w-5" strokeWidth={1.75} /> : <Folder className="h-5 w-5" strokeWidth={1.75} />}
         </span>
         {onDelete && (
           <span

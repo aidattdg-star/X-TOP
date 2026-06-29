@@ -433,6 +433,70 @@ export const testAccountsOnline = createServerFn({ method: "POST" })
   });
 
 // ============================================================================
+// SHADOWBAN — detecta search ban e manda pra QUARENTENA (shadowban_at)
+// Sinal: a conta tem tweets recentes mas eles NÃO aparecem na busca "from:".
+// ============================================================================
+export const checkShadowban = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { accountIds: string[] }) =>
+    z.object({ accountIds: z.array(z.string().uuid()).min(1).max(20) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { getUserIdByScreenName, getUserRecentTweets, searchRecentTweets, buildDispatcher } = await import(
+      "@/lib/twitter-client.server"
+    );
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+
+    // Leitora: conta ativa com sessão válida (de preferência fora da lista testada).
+    const { data: readers } = await context.supabase
+      .from("twitter_accounts").select("id, username, auth_tokens, proxy_id, status").eq("status", "active").limit(60);
+    const valid = (readers ?? []).filter((a: any) => a?.auth_tokens?.ct0 && a?.auth_tokens?.auth_token);
+    const reader = valid.find((a: any) => !data.accountIds.includes(a.id)) ?? valid[0];
+    if (!reader) throw new Error("Nenhuma conta ativa com sessão válida para servir de leitora.");
+    const rd = buildDispatcher(await loadProxyOrFallback(context.supabase, reader.proxy_id));
+    const rt = reader.auth_tokens as any;
+
+    const { data: targets } = await context.supabase
+      .from("twitter_accounts").select("id, username").in("id", data.accountIds);
+    const nameById = new Map((targets ?? []).map((t: any) => [t.id, t.username as string]));
+
+    const results: Array<{ accountId: string; username?: string; status: "ok" | "shadowban" | "sem_tweets" | "erro"; detail?: string }> = [];
+    for (const accountId of data.accountIds) {
+      const username = nameById.get(accountId);
+      if (!username) { results.push({ accountId, status: "erro", detail: "conta não encontrada" }); continue; }
+      try {
+        const uid = await getUserIdByScreenName(rt, username, rd);
+        const recent = await getUserRecentTweets(rt, uid, 5, rd);
+        if (!recent.length) {
+          results.push({ accountId, username, status: "sem_tweets", detail: "sem tweets recentes (não dá pra testar)" });
+          continue;
+        }
+        const search = await searchRecentTweets(rt, `from:${username}`, 20, rd);
+        const ids = new Set(search.map((s) => s.id));
+        const visible = recent.some((t) => ids.has(t.id));
+        if (!visible) {
+          await context.supabase.from("twitter_accounts")
+            .update({ shadowban_at: new Date().toISOString() } as never).eq("id", accountId);
+          results.push({ accountId, username, status: "shadowban", detail: "search ban (não aparece na busca)" });
+        } else {
+          await context.supabase.from("twitter_accounts")
+            .update({ shadowban_at: null } as never).eq("id", accountId);
+          results.push({ accountId, username, status: "ok" });
+        }
+      } catch (e) {
+        results.push({ accountId, username, status: "erro", detail: (e instanceof Error ? e.message : String(e)).slice(0, 90) });
+      }
+    }
+    return {
+      results,
+      ok: results.filter((r) => r.status === "ok").length,
+      shadowban: results.filter((r) => r.status === "shadowban").length,
+      sem_tweets: results.filter((r) => r.status === "sem_tweets").length,
+      erro: results.filter((r) => r.status === "erro").length,
+    };
+  });
+
+// ============================================================================
 // @ USERNAME (individual, com rate-limit 1x/dia)
 // ============================================================================
 export const updateAccountUsername = createServerFn({ method: "POST" })
