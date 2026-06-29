@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { testMonitorTargets } from "@/lib/monitoring.functions";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Repeat2, MessageCircle, Zap, Search, Check } from "lucide-react";
+import { Send, Repeat2, MessageCircle, Zap, Search, Check, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +66,9 @@ export function CreateMonitorModal({
   accounts: Account[];
 }) {
   const qc = useQueryClient();
+  const runTest = useServerFn(testMonitorTargets);
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<{ handle: string; ok: boolean; name?: string; error?: string }[] | null>(null);
   const [targets, setTargets] = useState("");
   const [action, setAction] = useState<ActionType>("action.post_tweet");
   const [text, setText] = useState("");
@@ -88,6 +93,23 @@ export function CreateMonitorModal({
 
   function toggleAcc(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  }
+
+  async function handleTest() {
+    if (!handles.length) return toast.error("Cole ao menos um @ alvo para testar.");
+    setTesting(true);
+    setTestResults(null);
+    try {
+      const r = await runTest({ data: { handles } });
+      setTestResults(r.results);
+      const ok = r.results.filter((x) => x.ok).length;
+      if (ok === r.results.length) toast.success(`Todos os ${ok} @ alvo(s) existem ✓`);
+      else toast.warning(`${ok}/${r.results.length} ok — confira abaixo`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao testar");
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function handleSave() {
@@ -184,14 +206,42 @@ export function CreateMonitorModal({
             <Textarea
               rows={2}
               value={targets}
-              onChange={(e) => setTargets(e.target.value)}
+              onChange={(e) => { setTargets(e.target.value); setTestResults(null); }}
               placeholder="@usuario1  @usuario2 …"
               className="font-mono text-xs bg-white/[0.04] border-white/10 focus-visible:border-brand/40 resize-none"
             />
             {handles.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {handles.length} alvo(s): {handles.map((h) => "@" + h).join(", ")}
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground truncate">
+                  {handles.length} alvo(s): {handles.map((h) => "@" + h).join(", ")}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand/10 px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-brand/20 transition-colors disabled:opacity-50"
+                >
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  {testing ? "Testando…" : "Testar @ alvos"}
+                </button>
+              </div>
+            )}
+            {testResults && (
+              <div className="rounded-lg border border-white/10 bg-white/[0.02] divide-y divide-white/[0.05] overflow-hidden">
+                {testResults.map((r) => (
+                  <div key={r.handle} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                    {r.ok ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                    )}
+                    <span className="text-foreground">@{r.handle}</span>
+                    <span className="text-muted-foreground truncate flex-1">
+                      {r.ok ? (r.name ? `· ${r.name}` : "· existe") : `· ${r.error ?? "não encontrado"}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
