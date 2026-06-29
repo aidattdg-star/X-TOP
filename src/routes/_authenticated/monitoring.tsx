@@ -244,6 +244,13 @@ function MonitoringPage() {
     return s;
   }, [monitors]);
 
+  // Ações que deram certo (tweet/RT/like/comentário publicado) — pra ver os sucessos.
+  const successLogs = useMemo(() => {
+    return (logsQuery.data ?? [])
+      .filter((l) => l.level === "info" && /^(💬|🔁|❤️)|publicado/.test(l.message))
+      .slice(0, 30);
+  }, [logsQuery.data]);
+
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-7xl mx-auto">
       <div className="flex items-start justify-between">
@@ -277,6 +284,28 @@ function MonitoringPage() {
         <StatCard label="Avisos" value={stats.warn} icon={AlertTriangle} tone="warn" />
         <StatCard label="Erros" value={stats.error} icon={XCircle} tone="danger" />
       </div>
+
+      {successLogs.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Ações com sucesso
+            </h2>
+            <span className="text-xs text-muted-foreground">{successLogs.length} recentes</span>
+          </div>
+          <div className="border border-emerald-500/15 bg-emerald-500/[0.03] rounded-lg divide-y divide-border max-h-72 overflow-auto">
+            {successLogs.map((l) => (
+              <div key={l.id} className="px-4 py-2 flex items-start gap-3 text-xs">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
+                <span className="text-muted-foreground whitespace-nowrap font-mono">
+                  {new Date(l.created_at).toLocaleTimeString("pt-BR")}
+                </span>
+                <span className="flex-1 text-foreground/90 break-words"><LinkifiedMsg text={l.message} /></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 space-y-3">
         {monitors.length === 0 ? (
@@ -596,6 +625,23 @@ function LevelBadge({ level }: { level: string }) {
     <Badge variant={variant[level] ?? "outline"} className="font-normal text-[10px] uppercase tracking-wider">
       {level}
     </Badge>
+  );
+}
+
+function LinkifiedMsg({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/\S+)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        /^https?:\/\//.test(p) ? (
+          <a key={i} href={p} target="_blank" rel="noreferrer" className="text-brand hover:underline break-all">
+            {p}
+          </a>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
   );
 }
 
