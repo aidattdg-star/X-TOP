@@ -109,16 +109,21 @@ async function handle(): Promise<Response> {
       const { data: accsRaw } = accountIds.length
         ? await supabaseAdmin
             .from("twitter_accounts")
-            .select("id, username, auth_tokens, proxy_id, warming_until")
+            .select("id, username, auth_tokens, proxy_id, warming_until, status, shadowban_at")
             .in("id", accountIds)
         : { data: [] as any[] };
-      // Exclui contas em aquecimento (cadeado) das ações do monitor.
-      const accs = (accsRaw ?? []).filter((a: any) => !a.warming_until || a.warming_until <= nowIsoChk);
-      let validAccountIds = accs.map((a: any) => a.id as string);
-      if (accountIds.length && validAccountIds.length < accountIds.length) {
-        await log(supabaseAdmin, flow.user_id, flow.id, "warn",
-          `Monitor @${handle}: ${accountIds.length - validAccountIds.length} conta(s) inválida(s) ignorada(s)`);
+      // Auto-poda contas DELETADAS da lista do monitor (senão avisa "inválidas" todo ciclo).
+      const existingIds = new Set((accsRaw ?? []).map((a: any) => a.id as string));
+      const deletedIds = accountIds.filter((id) => !existingIds.has(id));
+      if (deletedIds.length) {
+        const cleaned = accountIds.filter((id) => existingIds.has(id));
+        await supabaseAdmin.from("automation_flows").update({ account_ids: cleaned } as never).eq("id", flow.id);
       }
+      // Executoras válidas: existem, não banidas, fora de aquecimento e fora de quarentena (shadowban).
+      const accs = (accsRaw ?? []).filter(
+        (a: any) => a.status !== "banned" && (!a.warming_until || a.warming_until <= nowIsoChk) && !a.shadowban_at,
+      );
+      let validAccountIds = accs.map((a: any) => a.id as string);
 
       const nowIso = new Date().toISOString();
 
@@ -154,8 +159,8 @@ async function handle(): Promise<Response> {
         const newest = tweets[0]?.id ?? null;
 
         if (!tweets.length) {
-          await log(supabaseAdmin, flow.user_id, flow.id, "warn",
-            `Monitor @${handle}: leitura via @${readerName} OK, mas o X retornou 0 tweets recentes`);
+          await log(supabaseAdmin, flow.user_id, flow.id, "info",
+            `Monitor @${handle}: leitura via @${readerName} OK — alvo sem tweets recentes (nada a fazer agora)`);
         }
 
         // First run → baseline only, no actions
