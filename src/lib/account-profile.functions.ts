@@ -332,6 +332,42 @@ export const updateAccountsProfile = createServerFn({ method: "POST" })
   });
 
 // ============================================================================
+// DESBLOQUEAR (tornar pública) — tira o cadeado "tweets protegidos"
+// ============================================================================
+export const unprotectAccounts = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { accountIds: string[]; makeProtected?: boolean }) =>
+    z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(200),
+      makeProtected: z.boolean().optional(),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { setProtected, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const wantProtected = !!data.makeProtected;
+    const results: Array<{ accountId: string; username?: string; ok: boolean; error?: string }> = [];
+    for (const accountId of data.accountIds) {
+      try {
+        const { acc, tokens } = await loadAccount(context.supabase, context.userId, accountId);
+        let proxy: { ip: string; port: number; username: string | null; password: string | null } | null = null;
+        const { data: pa } = await context.supabase
+          .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
+        if (pa?.proxy_id) {
+          const { data: p } = await context.supabase
+            .from("proxies").select("ip, port, username, password").eq("id", pa.proxy_id).maybeSingle();
+          proxy = p as any;
+        }
+        await setProtected(tokens, wantProtected, buildDispatcher(proxy));
+        await persistRefreshed(context.supabase, accountId, tokens);
+        results.push({ accountId, username: acc.username, ok: true });
+      } catch (e) {
+        results.push({ accountId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { results, ok_count: results.filter((r) => r.ok).length, total: data.accountIds.length };
+  });
+
+// ============================================================================
 // @ USERNAME (individual, com rate-limit 1x/dia)
 // ============================================================================
 export const updateAccountUsername = createServerFn({ method: "POST" })

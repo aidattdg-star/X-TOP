@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw, Search, Check, UserCog, FolderInput } from "lucide-react";
+import { Image as ImageIcon, AlertTriangle, Loader2, ScrollText, CheckCircle2, XCircle, RefreshCw, Search, Check, UserCog, FolderInput, Unlock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
@@ -13,6 +13,7 @@ import {
   applyBannerToAccounts,
   updateAccountsProfile,
   updateAccountUsername,
+  unprotectAccounts,
 } from "@/lib/account-profile.functions";
 
 export const Route = createFileRoute("/_authenticated/edit-accounts")({
@@ -38,6 +39,7 @@ function EditAccountsPage() {
   const applyBannerFn = useServerFn(applyBannerToAccounts);
   const updateProfileFn = useServerFn(updateAccountsProfile);
   const updateUsernameFn = useServerFn(updateAccountUsername);
+  const unprotectFn = useServerFn(unprotectAccounts);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
@@ -338,6 +340,7 @@ function EditAccountsPage() {
                 runFn={updateUsernameFn}
                 onDone={refreshAfterEdit}
               />
+              <UnlockCard count={selected.size} accountIds={ids} runFn={unprotectFn} />
               <LogPanel accountIds={ids} />
             </>
           )}
@@ -763,6 +766,63 @@ function UsernameCard({
           </div>
         </div>
       )}
+    </Card>
+  );
+}
+
+// ============================================================================
+// DESBLOQUEAR (tornar pública)
+// ============================================================================
+function UnlockCard({
+  count,
+  accountIds,
+  runFn,
+}: {
+  count: number;
+  accountIds: string[];
+  runFn: (args: { data: any }) => Promise<any>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, ok: 0, fail: 0 });
+
+  async function submit() {
+    if (!confirm(`Desbloquear ${count} conta(s)? Vai tirar o cadeado (tweets protegidos) e deixar a(s) conta(s) PÚBLICA(s).`)) return;
+    setBusy(true);
+    setProgress({ done: 0, ok: 0, fail: 0 });
+    let ok = 0, fail = 0;
+    try {
+      for (let i = 0; i < accountIds.length; i++) {
+        try {
+          const { results } = await runFn({ data: { accountIds: [accountIds[i]] } });
+          if (results[0]?.ok) ok++; else fail++;
+        } catch { fail++; }
+        setProgress({ done: i + 1, ok, fail });
+      }
+      if (fail === 0) toast.success(`${ok} conta(s) desbloqueada(s) (agora pública)`);
+      else toast.warning(`${ok} ok / ${fail} falha(s) — veja o log abaixo`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Desbloquear conta (privacidade)"
+      subtitle="Tira o cadeado de 'tweets protegidos' — deixa a conta pública."
+      icon={<Unlock className="w-4 h-4 text-emerald-400" />}
+    >
+      <p className="text-[11px] text-muted-foreground mb-3">
+        Aplica nas <b className="text-foreground">{count}</b> conta(s) selecionada(s). Contas que já são públicas não mudam nada.
+      </p>
+      <button
+        onClick={submit}
+        disabled={busy}
+        className="px-4 py-2.5 text-xs font-medium rounded-lg gradient-brand text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2 transition-opacity"
+      >
+        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3.5 h-3.5" />}
+        Desbloquear {count} conta(s)
+      </button>
+      {busy && <ProgressStrip done={progress.done} total={count} ok={progress.ok} fail={progress.fail} />}
     </Card>
   );
 }

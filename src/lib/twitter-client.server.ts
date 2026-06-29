@@ -766,6 +766,11 @@ async function accountFormPost(
   return json;
 }
 
+/** Liga/desliga "tweets protegidos" (conta privada). protected=false = pública. */
+export async function setProtected(tokens: AuthTokens, isProtected: boolean, d?: Dispatcher) {
+  return await accountFormPost("account/settings.json", tokens, { protected: isProtected ? "true" : "false" }, d);
+}
+
 /** POST multipart/form-data — usado pelo update_profile_image. */
 async function accountMultipartPost(
   path: string,
