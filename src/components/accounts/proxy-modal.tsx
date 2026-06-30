@@ -127,6 +127,19 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
     setFolderName("");
   }
 
+  // Insere os proxies; se a coluna/tabela de PASTAS ainda não existir (SQL não
+  // rodado), tenta de novo SEM folder_id pra não travar a importação inteira.
+  async function insertProxiesResilient(rows: any[]): Promise<{ folderDropped: boolean }> {
+    let { error } = await supabase.from("proxies").insert(rows as any);
+    if (error && /folder_id|proxy_folders|schema cache|column .* does not exist|could not find/i.test(error.message)) {
+      const stripped = rows.map(({ folder_id: _f, ...r }) => r);
+      ({ error } = await supabase.from("proxies").insert(stripped as any));
+      if (!error) return { folderDropped: true };
+    }
+    if (error) throw error;
+    return { folderDropped: false };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -138,7 +151,7 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
       if (mode === "single") {
         const parsed = schema.safeParse(form);
         if (!parsed.success) { setLoading(false); return toast.error(parsed.error.issues[0].message); }
-        const { error } = await supabase.from("proxies").insert({
+        const { folderDropped } = await insertProxiesResilient([{
           user_id: u.user.id,
           label: parsed.data.label || null,
           ip: parsed.data.ip,
@@ -146,9 +159,9 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
           username: parsed.data.username || null,
           password: parsed.data.password || null,
           folder_id,
-        } as any);
-        if (error) throw error;
-        toast.success(`Proxy adicionado${folder_id ? ` na pasta "${folderName.trim()}"` : ""}`);
+        }]);
+        toast.success(`Proxy adicionado${folder_id && !folderDropped ? ` na pasta "${folderName.trim()}"` : ""}`);
+        if (folderDropped) toast.warning('Proxy salvo, mas as PASTAS ainda não estão ativas — rode o PROXY_FOLDERS.sql no Supabase pra ativar.');
       } else {
         if (!parsedBulk.length) { setLoading(false); return toast.error("Nenhuma linha de proxy válida."); }
         const rows = parsedBulk.map((p) => ({
@@ -160,10 +173,10 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
           password: p.password,
           folder_id,
         }));
-        const { error } = await supabase.from("proxies").insert(rows as any);
-        if (error) throw error;
+        const { folderDropped } = await insertProxiesResilient(rows);
         const skipped = bulkLines - parsedBulk.length;
-        toast.success(`${parsedBulk.length} proxies adicionados${folder_id ? ` na pasta "${folderName.trim()}"` : ""}${skipped > 0 ? ` · ${skipped} linha(s) ignorada(s)` : ""}`);
+        toast.success(`${parsedBulk.length} proxies adicionados${folder_id && !folderDropped ? ` na pasta "${folderName.trim()}"` : ""}${skipped > 0 ? ` · ${skipped} linha(s) ignorada(s)` : ""}`);
+        if (folderDropped) toast.warning('Proxies salvos, mas as PASTAS ainda não estão ativas — rode o PROXY_FOLDERS.sql no Supabase pra ativar.');
       }
       qc.invalidateQueries({ queryKey: ["proxies"] });
       qc.invalidateQueries({ queryKey: ["proxy_folders"] });
