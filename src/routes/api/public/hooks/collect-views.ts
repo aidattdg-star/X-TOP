@@ -26,7 +26,7 @@ export const Route = createFileRoute("/api/public/hooks/collect-views")({
 
 async function handle(): Promise<Response> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { getUserIdByScreenName, getUserRecentTweets, buildDispatcher } = await import(
+  const { verifySession, getUserRecentTweets, buildDispatcher } = await import(
     "@/lib/twitter-client.server"
   );
 
@@ -71,7 +71,9 @@ async function handle(): Promise<Response> {
 
     try {
       const dispatcher = buildDispatcher(proxy);
-      const uid = await getUserIdByScreenName(tokens, acc.username, dispatcher);
+      // verifySession traz o rest_id E a contagem de seguidores na mesma chamada
+      const info = await verifySession(tokens, acc.username, dispatcher);
+      const uid = info.id;
       const tweets = await getUserRecentTweets(tokens, uid, 20, dispatcher);
       const views = tweets.reduce((s, t) => s + (Number(t.view_count) || 0), 0);
 
@@ -86,6 +88,13 @@ async function handle(): Promise<Response> {
         } as never,
         { onConflict: "account_id" },
       );
+      // atualiza follower_count de quebra (coluna pode não existir até rodar o SQL)
+      if (info.followers_count >= 0) {
+        await (supabaseAdmin as any)
+          .from("twitter_accounts")
+          .update({ follower_count: info.followers_count } as never)
+          .eq("id", acc.id);
+      }
       out.processed++;
       out.total_views_batch += views;
     } catch (e) {
