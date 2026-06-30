@@ -20,6 +20,12 @@ export const Route = createFileRoute("/_authenticated/accounts")({
   component: AccountsPage,
 });
 
+function fmtFollowers(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
 function AccountsPage() {
   const qc = useQueryClient();
   const [proxyOpen, setProxyOpen] = useState(false);
@@ -479,6 +485,13 @@ function AccountsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">@{acc.username}</p>
                   <p className="text-xs text-muted-foreground truncate">{acc.display_name || "—"}</p>
+                  {(acc as any).follower_count != null && (
+                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-foreground/80">
+                      <Flame className="h-3 w-3 text-orange-400" strokeWidth={2} />
+                      <b className="tabular-nums">{fmtFollowers(Number((acc as any).follower_count))}</b>
+                      <span className="text-muted-foreground">seguidores</span>
+                    </span>
+                  )}
                   {(acc as any).limited_at && (
                     <span
                       title="O X aceitou o like mas descartou o RT. Verifique a conta (telefone/captcha) e clique em 'Já verifiquei'."
