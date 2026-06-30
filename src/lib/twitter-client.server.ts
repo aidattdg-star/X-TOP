@@ -305,6 +305,97 @@ const VIEWER_FIELD_TOGGLES = {
   withAuxiliaryUserLabels: false,
 };
 
+// Features para as operações de Comunidades (X Communities). Superset coerente
+// usado pela página principal de comunidades e timeline de tweets da comunidade.
+const COMMUNITY_FEATURES = {
+  rweb_tipjar_consumption_enabled: true,
+  responsive_web_graphql_exclude_directive_enabled: true,
+  verified_phone_label_enabled: false,
+  creator_subscriptions_tweet_preview_api_enabled: true,
+  responsive_web_graphql_timeline_navigation_enabled: true,
+  responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+  communities_web_enable_tweet_community_results_fetch: true,
+  c9s_tweet_anatomy_moderator_badge_enabled: true,
+  tweetypie_unmention_optimization_enabled: true,
+  responsive_web_edit_tweet_api_enabled: true,
+  graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+  view_counts_everywhere_api_enabled: true,
+  longform_notetweets_consumption_enabled: true,
+  responsive_web_twitter_article_tweet_consumption_enabled: true,
+  tweet_awards_web_tipping_enabled: false,
+  creator_subscriptions_quote_tweet_preview_enabled: false,
+  freedom_of_speech_not_reach_fetch_enabled: true,
+  standardized_nudges_misinfo: true,
+  tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+  rweb_video_timestamps_enabled: true,
+  longform_notetweets_rich_text_read_enabled: true,
+  longform_notetweets_inline_media_enabled: true,
+  responsive_web_enhance_cards_enabled: false,
+};
+
+export interface CommunityInfo {
+  id: string;
+  name: string;
+  description: string;
+  member_count: number;
+  role: string; // "Member" | "Admin" | "Moderator" | "NonMember" | ""
+  can_post: boolean; // membro/admin/moderador consegue postar dentro
+}
+
+/** O X devolve "Member"/"Admin"/"Moderator" pra quem participa; "NonMember" pra discovery. */
+function roleCanPost(role: string): boolean {
+  return /member|admin|moderator/i.test(role) && !/nonmember|non_member/i.test(role);
+}
+
+/** Varre o JSON do timeline e extrai todo objeto de Comunidade (dedup por id). */
+function collectCommunities(value: any, out: Map<string, CommunityInfo>, seen = new Set<any>()): void {
+  if (!value || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+
+  const isCommunity =
+    value.__typename === "Community" ||
+    ((value.id_str || value.rest_id) &&
+      typeof value.name === "string" &&
+      (value.member_count !== undefined || value.role !== undefined || value.join_policy !== undefined));
+  if (isCommunity) {
+    const id = String(value.rest_id ?? value.id_str ?? "");
+    if (id && !out.has(id)) {
+      const role = String(value.role ?? "");
+      out.set(id, {
+        id,
+        name: String(value.name ?? ""),
+        description: String(value.description ?? ""),
+        member_count: Number(value.member_count ?? 0),
+        role,
+        can_post: roleCanPost(role),
+      });
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectCommunities(item, out, seen);
+    return;
+  }
+  for (const child of Object.values(value)) collectCommunities(child, out, seen);
+}
+
+/** Lista as comunidades visíveis pra essa conta (página principal de Comunidades).
+ *  Inclui as que a conta participa (role Member/Admin/Moderator → pode postar) e
+ *  as recomendadas (NonMember). Usamos `can_post` pra saber onde dá pra publicar. */
+export async function fetchCommunities(tokens: AuthTokens, d?: Dispatcher): Promise<CommunityInfo[]> {
+  const json = await gqlGet(
+    "CommunitiesMainPageTimeline",
+    tokens,
+    { count: 100, withCommunity: true },
+    COMMUNITY_FEATURES,
+    undefined,
+    d,
+  );
+  const out = new Map<string, CommunityInfo>();
+  collectCommunities(json, out);
+  return Array.from(out.values());
+}
+
 function xApiError(prefix: string, status: number, text: string, json: any): Error {
   const err = json?.errors?.[0];
   const code = err?.code;
@@ -423,15 +514,30 @@ export async function uploadTweetVideo(
   return mediaId;
 }
 
-export async function postTweet(tokens: AuthTokens, text: string, d?: Dispatcher, mediaIds?: string[]) {
+export async function postTweet(
+  tokens: AuthTokens,
+  text: string,
+  d?: Dispatcher,
+  mediaIds?: string[],
+  communityId?: string,
+) {
   const media_entities = (mediaIds ?? []).map((id) => ({ media_id: id, tagged_users: [] }));
+  const variables: Record<string, unknown> = {
+    tweet_text: text,
+    dark_request: false,
+    media: { media_entities, possibly_sensitive: false },
+    semantic_annotation_ids: [],
+  };
+  // Postar DENTRO de uma comunidade: o X usa semantic_annotation_ids com o id da
+  // comunidade (group_id 8 / domain_id 31). broadcast=true também mostra aos seguidores.
+  if (communityId) {
+    variables.semantic_annotation_ids = [
+      { entity_id: communityId, group_id: "8", domain_id: "31" },
+    ];
+    variables.broadcast = true;
+  }
   const json = await gqlPost("CreateTweet", tokens, {
-    variables: {
-      tweet_text: text,
-      dark_request: false,
-      media: { media_entities, possibly_sensitive: false },
-      semantic_annotation_ids: [],
-    },
+    variables,
     features: TWEET_FEATURES,
   }, d);
   const result = json?.data?.create_tweet?.tweet_results?.result;

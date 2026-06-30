@@ -17,6 +17,7 @@ import {
   X,
   Send,
   EyeOff,
+  Users2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const nav = [
   { to: "/edit-accounts", label: "Editar contas", icon: UserCog },
   { to: "/media", label: "Mídias", icon: ImageIcon },
   { to: "/post-tweet", label: "Postar tweet", icon: Send },
+  { to: "/communities", label: "Comunidades", icon: Users2 },
   { to: "/automations", label: "Automações", icon: Workflow },
   { to: "/mass-engage", label: "RT & Like massa", icon: Rocket },
   { to: "/education", label: "Educar conta", icon: GraduationCap },

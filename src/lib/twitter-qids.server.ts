@@ -22,6 +22,12 @@ const FALLBACK: Record<string, string> = {
   UserTweets: "RyDU3I9VJtPF-Pnl6vrRlw",
   Viewer: "XdoyrgGBgyPmBDS7Snsd4A",
   SearchTimeline: "Bcw3RzK-PatNAmbnw54hFw",
+  // Comunidades (X Communities)
+  CommunitiesMainPageTimeline: "4-4iuIdaLPpmxKnA3mr2LA",
+  CommunityTweetsTimeline: "mhwSsmub4JZgHcs0dtsjrw",
+  CommunitiesSearchQuery: "daVUkhfHn7-Z8llpYVKJSw",
+  CommunityQuery: "lUBKrilodgg9Nikaw3cIiA",
+  JoinCommunity: "xZQLbDwbI585YTG0QIpokw",
 };
 
 // Fonte mantida (auto-atualizada a partir do bundle do X).

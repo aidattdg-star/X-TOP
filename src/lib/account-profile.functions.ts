@@ -1046,3 +1046,152 @@ export const syncFollowerCounts = createServerFn({ method: "POST" })
     }
     return { updated, errors, skipped, total: rows.length, errSamples };
   });
+
+// ============================================================================
+// COMUNIDADES — puxa as comunidades visíveis/participadas por cada conta
+// e guarda em twitter_communities (pra depois postar dentro).
+// ============================================================================
+export const syncCommunities = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { accountIds?: string[] }) =>
+    z.object({ accountIds: z.array(z.string().uuid()).max(100).optional() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { fetchCommunities, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+
+    let query = context.supabase
+      .from("twitter_accounts")
+      .select("id, username, auth_tokens, proxy_id, status")
+      .eq("user_id", context.userId);
+    if (data.accountIds?.length) query = query.in("id", data.accountIds);
+    const { data: allRows, error: qErr } = await query;
+    if (qErr) throw new Error(`Falha ao buscar contas: ${qErr.message}`);
+    const rows = (allRows ?? []).filter(
+      (r: any) => r.status !== "banned" && r.status !== "suspended",
+    );
+    if (!rows.length) return { scanned: 0, found: 0, postable: 0, errors: 0, errSamples: [] as string[] };
+
+    let scanned = 0, found = 0, postable = 0, errors = 0;
+    const errSamples: string[] = [];
+    for (const row of rows) {
+      const tokens = row.auth_tokens as any;
+      if (!tokens?.ct0 || !tokens?.auth_token) continue;
+      try {
+        const proxy = await loadProxyOrFallback(context.supabase, row.proxy_id);
+        const communities = await fetchCommunities(tokens, buildDispatcher(proxy));
+        await persistRefreshed(context.supabase, row.id, tokens);
+        scanned++;
+        if (!communities.length) continue;
+        const upsertRows = communities.map((c) => ({
+          user_id: context.userId,
+          account_id: row.id,
+          community_id: c.id,
+          name: c.name,
+          description: c.description,
+          member_count: c.member_count,
+          role: c.role,
+          can_post: c.can_post,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error: upErr } = await (context.supabase as any)
+          .from("twitter_communities")
+          .upsert(upsertRows, { onConflict: "account_id,community_id" });
+        if (upErr) {
+          errors++;
+          if (errSamples.length < 3) errSamples.push(`@${row.username}: ${upErr.message.slice(0, 80)}`);
+        } else {
+          found += communities.length;
+          postable += communities.filter((c) => c.can_post).length;
+        }
+      } catch (e) {
+        errors++;
+        const msg = e instanceof Error ? e.message : String(e);
+        await markDownIfFell(context.supabase, row.id, msg);
+        if (errSamples.length < 3) errSamples.push(`@${row.username}: ${msg.slice(0, 80)}`);
+      }
+    }
+    return { scanned, found, postable, errors, errSamples };
+  });
+
+// ============================================================================
+// POSTAR DENTRO DE UMA COMUNIDADE — a conta (membro) publica na comunidade.
+// ============================================================================
+export const postToCommunity = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: {
+    accountId: string;
+    communityId: string;
+    text: string;
+    mediaFileIds?: string[];
+  }) =>
+    z.object({
+      accountId: z.string().uuid(),
+      communityId: z.string().min(1).max(40),
+      text: z.string().trim().max(280),
+      mediaFileIds: z.array(z.string().uuid()).min(1).max(4).optional(),
+    }).refine((v) => v.text.length > 0 || (v.mediaFileIds?.length ?? 0) > 0, {
+      message: "Escreva o texto ou escolha uma mídia.",
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { uploadTweetMedia, uploadTweetVideo, postTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+
+    // valida que a comunidade pertence a essa conta (e que dá pra postar)
+    const { data: comm } = await (context.supabase as any)
+      .from("twitter_communities")
+      .select("community_id, name, can_post")
+      .eq("account_id", data.accountId)
+      .eq("community_id", data.communityId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (!comm) throw new Error("Comunidade não encontrada para essa conta — sincronize as comunidades primeiro.");
+    if (comm.can_post === false) {
+      throw new Error(`Essa conta não é membro de "${comm.name ?? "comunidade"}" — entre na comunidade no X antes de postar.`);
+    }
+
+    try {
+      const { acc, tokens } = await loadAccount(context.supabase, context.userId, data.accountId);
+      const { data: pa } = await context.supabase
+        .from("twitter_accounts").select("proxy_id").eq("id", data.accountId).maybeSingle();
+      const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
+      const dispatcher = buildDispatcher(proxy);
+
+      let mediaIds: string[] | undefined;
+      if (data.mediaFileIds?.length) {
+        const { data: files } = await context.supabase
+          .from("media_files")
+          .select("id, storage_path, user_id, mime_type")
+          .in("id", data.mediaFileIds);
+        const byId = new Map((files ?? []).map((f: any) => [f.id, f]));
+        const ordered = data.mediaFileIds.map((id) => {
+          const f = byId.get(id);
+          if (!f || f.user_id !== context.userId) throw new Error("Mídia não encontrada");
+          return { storage_path: f.storage_path as string, mime: String(f.mime_type ?? "") };
+        });
+        const isVideo = ordered.some((f) => f.mime.startsWith("video/"));
+        if (isVideo && ordered.length !== 1)
+          throw new Error("Vídeo deve ser postado sozinho (1 por tweet).");
+        mediaIds = [];
+        if (isVideo) {
+          const bytes = await downloadAsBuffer(context.supabase, ordered[0].storage_path);
+          mediaIds.push(await uploadTweetVideo(tokens, bytes, ordered[0].mime || "video/mp4", dispatcher));
+        } else {
+          for (const f of ordered) {
+            const b64 = await downloadAsBase64(context.supabase, f.storage_path);
+            mediaIds.push(await uploadTweetMedia(tokens, b64, dispatcher));
+          }
+        }
+      }
+
+      const text = data.text.trim();
+      const r = await postTweet(tokens, text ? pickVariant(text) : text, dispatcher, mediaIds, data.communityId);
+      await persistRefreshed(context.supabase, data.accountId, tokens);
+      return { ok: true, url: `https://x.com/${acc.username}/status/${r.rest_id}` };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await markDownIfFell(context.supabase, data.accountId, msg);
+      throw new Error(msg);
+    }
+  });

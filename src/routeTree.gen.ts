@@ -22,6 +22,7 @@ import { Route as AuthenticatedLogsRouteImport } from './routes/_authenticated/l
 import { Route as AuthenticatedEducationRouteImport } from './routes/_authenticated/education'
 import { Route as AuthenticatedEditAccountsRouteImport } from './routes/_authenticated/edit-accounts'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedCommunitiesRouteImport } from './routes/_authenticated/communities'
 import { Route as AuthenticatedAutomationsRouteImport } from './routes/_authenticated/automations'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedAccountsRouteImport } from './routes/_authenticated/accounts'
@@ -98,6 +99,12 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCommunitiesRoute =
+  AuthenticatedCommunitiesRouteImport.update({
+    id: '/communities',
+    path: '/communities',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAutomationsRoute =
   AuthenticatedAutomationsRouteImport.update({
     id: '/automations',
@@ -162,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AuthenticatedAccountsRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/automations': typeof AuthenticatedAutomationsRouteWithChildren
+  '/communities': typeof AuthenticatedCommunitiesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/edit-accounts': typeof AuthenticatedEditAccountsRoute
   '/education': typeof AuthenticatedEducationRoute
@@ -185,6 +193,7 @@ export interface FileRoutesByTo {
   '/pending': typeof PendingRoute
   '/accounts': typeof AuthenticatedAccountsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/communities': typeof AuthenticatedCommunitiesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/edit-accounts': typeof AuthenticatedEditAccountsRoute
   '/education': typeof AuthenticatedEducationRoute
@@ -211,6 +220,7 @@ export interface FileRoutesById {
   '/_authenticated/accounts': typeof AuthenticatedAccountsRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/automations': typeof AuthenticatedAutomationsRouteWithChildren
+  '/_authenticated/communities': typeof AuthenticatedCommunitiesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/edit-accounts': typeof AuthenticatedEditAccountsRoute
   '/_authenticated/education': typeof AuthenticatedEducationRoute
@@ -237,6 +247,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/admin'
     | '/automations'
+    | '/communities'
     | '/dashboard'
     | '/edit-accounts'
     | '/education'
@@ -260,6 +271,7 @@ export interface FileRouteTypes {
     | '/pending'
     | '/accounts'
     | '/admin'
+    | '/communities'
     | '/dashboard'
     | '/edit-accounts'
     | '/education'
@@ -285,6 +297,7 @@ export interface FileRouteTypes {
     | '/_authenticated/accounts'
     | '/_authenticated/admin'
     | '/_authenticated/automations'
+    | '/_authenticated/communities'
     | '/_authenticated/dashboard'
     | '/_authenticated/edit-accounts'
     | '/_authenticated/education'
@@ -407,6 +420,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/communities': {
+      id: '/_authenticated/communities'
+      path: '/communities'
+      fullPath: '/communities'
+      preLoaderRoute: typeof AuthenticatedCommunitiesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/automations': {
       id: '/_authenticated/automations'
       path: '/automations'
@@ -504,6 +524,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountsRoute: typeof AuthenticatedAccountsRoute
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedAutomationsRoute: typeof AuthenticatedAutomationsRouteWithChildren
+  AuthenticatedCommunitiesRoute: typeof AuthenticatedCommunitiesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEditAccountsRoute: typeof AuthenticatedEditAccountsRoute
   AuthenticatedEducationRoute: typeof AuthenticatedEducationRoute
@@ -519,6 +540,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountsRoute: AuthenticatedAccountsRoute,
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedAutomationsRoute: AuthenticatedAutomationsRouteWithChildren,
+  AuthenticatedCommunitiesRoute: AuthenticatedCommunitiesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEditAccountsRoute: AuthenticatedEditAccountsRoute,
   AuthenticatedEducationRoute: AuthenticatedEducationRoute,
