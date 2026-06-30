@@ -445,6 +445,14 @@ export async function postTweet(tokens: AuthTokens, text: string, d?: Dispatcher
   return { rest_id: String(restId), raw: json };
 }
 
+/** Apaga um tweet (usado no teste "postar e apagar" pra confirmar que a conta consegue publicar). */
+export async function deleteTweet(tokens: AuthTokens, tweetId: string, d?: Dispatcher) {
+  const json = await gqlPost("DeleteTweet", tokens, {
+    variables: { tweet_id: tweetId, dark_request: false },
+  }, d);
+  return { ok: !!json?.data?.delete_tweet, raw: json };
+}
+
 export async function retweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
   const json = await gqlPost("CreateRetweet", tokens, {
     variables: { tweet_id: tweetId, dark_request: false },

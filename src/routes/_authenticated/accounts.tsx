@@ -93,7 +93,7 @@ function AccountsPage() {
   async function testAllAccounts() {
     const ids = (accounts ?? []).filter((a: any) => a.status !== "banned").map((a: any) => a.id as string);
     if (!ids.length) return toast.info("Nenhuma conta pra testar.");
-    if (!confirm(`Testar ${ids.length} conta(s)? As que estiverem caídas (suspensas/banidas) vão automaticamente pra "Suspensas".`)) return;
+    if (!confirm(`Testar ${ids.length} conta(s) DE VERDADE? Cada conta posta um tweet curto e apaga na hora — assim conta suspensa/bloqueada (que finge estar online na leitura) é detectada. As que caírem vão pra "Suspensas".`)) return;
     setTestingAccounts(true);
     setAcctTestDone({ done: 0, total: ids.length, die: 0 });
     let die = 0, online = 0, erro = 0;

@@ -42,6 +42,11 @@ function pickVariant(text: string): string {
 function isDeadMsg(m: string): boolean {
   return /suspended|account is (temporarily )?locked|account has been locked|could not authenticate you|deactivated|user has been suspended|\bbanned\b|\(64\)|\(32\)/i.test(m);
 }
+// Suspensão/banimento REAL (não inclui cookie expirado) — pra marcar como banida só
+// quando o X de fato diz suspensa/bloqueada/desativada. Code 64/141 = suspensa.
+function isSuspendedMsg(m: string): boolean {
+  return /suspended|deactivated|account has been locked|account is (temporarily )?locked|your account is (temporarily )?locked|\bbanned\b|\(64\)|\(141\)/i.test(m);
+}
 // Em falha de ação imediata: se a conta caiu, marca DIE (conta+proxy); se "bounce", LIMITADA.
 async function markDownIfFell(supabase: any, accountId: string, msg: string): Promise<void> {
   try {
@@ -398,7 +403,7 @@ export const testAccountsOnline = createServerFn({ method: "POST" })
     z.object({ accountIds: z.array(z.string().uuid()).min(1).max(20) }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { verifySession, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { verifySession, postTweet, deleteTweet, buildDispatcher } = await import("@/lib/twitter-client.server");
     const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
     const results: Array<{ accountId: string; username?: string; status: "online" | "die" | "erro"; error?: string }> = [];
     for (const accountId of data.accountIds) {
@@ -409,23 +414,38 @@ export const testAccountsOnline = createServerFn({ method: "POST" })
         const { data: pa } = await context.supabase
           .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
         const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
-        // valida a sessão da própria conta (passa pelo proxy)
-        const sessionInfo = await verifySession(tokens, acc.username, buildDispatcher(proxy));
-        await persistRefreshed(context.supabase, accountId, tokens);
-        // aproveita pra salvar a contagem de seguidores (se a coluna existir)
-        if (sessionInfo.followers_count > 0) {
-          await context.supabase.from("twitter_accounts")
-            .update({ follower_count: sessionInfo.followers_count } as never).eq("id", accountId);
+        const dispatcher = buildDispatcher(proxy);
+
+        // 1) valida sessão + pega seguidores (UserByScreenName)
+        let followers = 0;
+        try {
+          const sessionInfo = await verifySession(tokens, acc.username, dispatcher);
+          followers = sessionInfo.followers_count;
+        } catch {
+          /* se a leitura falhar seguimos pro teste de escrita, que é o que importa */
         }
+
+        // 2) TESTE REAL: posta um tweet e apaga em seguida. Conta suspensa/bloqueada
+        //    passa na leitura mas FALHA aqui — é o que de fato confirma se está usável.
+        const tag = Math.random().toString(36).slice(2, 7);
+        const posted = await postTweet(tokens, `gm ${tag}`, dispatcher);
+        // apaga na hora (best-effort — não deixa lixo no perfil)
+        try { await deleteTweet(tokens, posted.rest_id, dispatcher); } catch { /* ignora */ }
+
+        await persistRefreshed(context.supabase, accountId, tokens);
+        // garante status ativo (caso estivesse marcada errada antes) + seguidores
+        const patch: Record<string, unknown> = { status: "active" };
+        if (followers > 0) patch.follower_count = followers;
+        await context.supabase.from("twitter_accounts").update(patch as never).eq("id", accountId);
         results.push({ accountId, username, status: "online" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (isDeadMsg(msg)) {
+        if (isSuspendedMsg(msg)) {
           await markDownIfFell(context.supabase, accountId, msg); // marca banida + proxy die
-          results.push({ accountId, username, status: "die", error: msg.slice(0, 90) });
+          results.push({ accountId, username, status: "die", error: msg.slice(0, 110) });
         } else {
-          // sessão pode estar só expirada/instável — não bane, só avisa
-          results.push({ accountId, username, status: "erro", error: msg.slice(0, 90) });
+          // cookie expirado / instabilidade — não bane, só avisa
+          results.push({ accountId, username, status: "erro", error: msg.slice(0, 110) });
         }
       }
     }

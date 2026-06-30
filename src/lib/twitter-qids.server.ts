@@ -16,6 +16,7 @@
 const FALLBACK: Record<string, string> = {
   CreateTweet: "R5EPiGHgSqbTYFyozd-gFw",
   CreateRetweet: "ojPdsZsimiJrUGLR1sjUtA",
+  DeleteTweet: "VaenaVgh5q5ih7kvyVjgtg",
   FavoriteTweet: "lI07N6Otwv1PhnEgXILM7A",
   UserByScreenName: "681MIj51w00Aj6dY0GXnHw",
   UserTweets: "RyDU3I9VJtPF-Pnl6vrRlw",
