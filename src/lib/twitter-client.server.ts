@@ -559,10 +559,10 @@ export async function deleteTweet(tokens: AuthTokens, tweetId: string, d?: Dispa
   return { ok: !!json?.data?.delete_tweet, raw: json };
 }
 
-export async function retweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
+export async function retweet(tokens: AuthTokens, tweetId: string, d?: Dispatcher) {
   const json = await gqlPost("CreateRetweet", tokens, {
     variables: { tweet_id: tweetId, dark_request: false },
-  });
+  }, d);
   const restId = json?.data?.create_retweet?.retweet_results?.result?.rest_id;
   if (restId) return { rest_id: String(restId), raw: json };
   // "You have already retweeted this Tweet" (code 327) = efetivamente já está RT'ado
@@ -587,7 +587,7 @@ export async function commentReply(
   tokens: AuthTokens,
   tweetId: string,
   text: string,
-  _d?: Dispatcher,
+  d?: Dispatcher,
 ) {
   const json = await gqlPost("CreateTweet", tokens, {
     variables: {
@@ -598,7 +598,7 @@ export async function commentReply(
       semantic_annotation_ids: [],
     },
     features: TWEET_FEATURES,
-  });
+  }, d);
   const result = json?.data?.create_tweet?.tweet_results?.result;
   const restId = result?.rest_id ?? result?.tweet?.rest_id;
   if (!restId) {
@@ -607,10 +607,10 @@ export async function commentReply(
   return { rest_id: String(restId), raw: json };
 }
 
-export async function likeTweet(tokens: AuthTokens, tweetId: string, _d?: Dispatcher) {
+export async function likeTweet(tokens: AuthTokens, tweetId: string, d?: Dispatcher) {
   const json = await gqlPost("FavoriteTweet", tokens, {
     variables: { tweet_id: tweetId },
-  });
+  }, d);
   if (json?.data?.favorite_tweet === "Done") return { done: true };
   // "already favorited" (code 139) = já curtido
   const code = json?.errors?.[0]?.code;
