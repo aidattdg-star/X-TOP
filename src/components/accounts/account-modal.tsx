@@ -25,6 +25,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, Wand2 } from "lucide-react";
 import { detectAccountFromCookies } from "@/lib/accounts.functions";
+import { testAccountsOnline } from "@/lib/account-profile.functions";
 import { cn } from "@/lib/utils";
 
 interface Proxy { id: string; ip: string; port: number; label: string | null }
@@ -156,6 +157,7 @@ export function AccountModal({
     ct0: string; auth_token: string; cookie_string: string;
   } | null>(null);
   const runDetect = useServerFn(detectAccountFromCookies);
+  const runTest = useServerFn(testAccountsOnline);
 
   async function autofill() {
     const { auth_token, cookie_string } = parseInput(form.auth_tokens);
@@ -245,6 +247,7 @@ export function AccountModal({
     setLoading(true);
     let ok = 0;
     const fails: string[] = [];
+    const insertedIds: string[] = [];
     try {
       const folder_id = await ensureFolderId(u.user.id, folderName);
       for (let i = 0; i < lines.length; i++) {
@@ -259,21 +262,22 @@ export function AccountModal({
           if (ct0 && username) {
             // Já temos ct0 + username (combolist): insere direto, sem detectar pelo X.
             setBulkLabel(`Adicionando @${username} (${i + 1}/${lines.length})…`);
-            const { error } = await supabase.from("twitter_accounts").insert({
+            const { data: ins, error } = await supabase.from("twitter_accounts").insert({
               user_id: u.user.id,
               username: username.replace(/^@/, ""),
               proxy_id,
               auth_tokens: { auth_token, ct0, cookie_string: cookie_string ?? `auth_token=${auth_token}; ct0=${ct0}` },
               status: "active",
               folder_id,
-            });
+            }).select("id").single();
             if (error) throw new Error(error.message);
+            if (ins?.id) insertedIds.push(ins.id);
             ok++;
           } else {
             // Sem ct0/username: detecta pelo X (precisa de proxy/sessão válida).
             setBulkLabel(`Detectando conta ${i + 1}/${lines.length}…`);
             const r = await runDetect({ data: { auth_token, cookie_string } });
-            const { error } = await supabase.from("twitter_accounts").insert({
+            const { data: ins, error } = await supabase.from("twitter_accounts").insert({
               user_id: u.user.id,
               username: r.username,
               display_name: r.name || null,
@@ -282,8 +286,9 @@ export function AccountModal({
               auth_tokens: r.tokens,
               status: "active",
               folder_id,
-            });
+            }).select("id").single();
             if (error) throw new Error(error.message);
+            if (ins?.id) insertedIds.push(ins.id);
             ok++;
           }
         } catch (e) {
@@ -296,6 +301,30 @@ export function AccountModal({
       qc.invalidateQueries({ queryKey: ["proxies_in_use"] });
       if (ok) toast.success(`${ok} conta(s) adicionada(s)${fails.length ? ` · ${fails.length} falha(s)` : ""}`);
       if (fails.length) toast.error(fails.slice(0, 3).join(" • ") + (fails.length > 3 ? "…" : ""));
+
+      // TESTE REAL na importação: posta+apaga um tweet em cada conta recém-adicionada
+      // pra marcar Ativo/Suspensa DE VERDADE (combolist entra "active" sem checar no X).
+      if (insertedIds.length) {
+        setBulkProgress(0);
+        let online = 0, die = 0, erro = 0, done = 0;
+        try {
+          for (let i = 0; i < insertedIds.length; i += 20) {
+            const batch = insertedIds.slice(i, i + 20);
+            setBulkLabel(`Testando contas no X (${done}/${insertedIds.length})…`);
+            const res = await runTest({ data: { accountIds: batch } });
+            online += res.online; die += res.die; erro += res.erro;
+            done += batch.length;
+            setBulkProgress(Math.round((done / insertedIds.length) * 100));
+            qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+          }
+          toast.success(
+            `Teste no X: ${online} online · ${die} suspensas (→ Suspensas)${erro ? ` · ${erro} instável(is)` : ""}`,
+          );
+        } catch (e) {
+          toast.error(`Contas adicionadas, mas o teste falhou: ${e instanceof Error ? e.message : "erro"}. Rode "Testar contas" manualmente.`);
+        }
+      }
+
       if (ok && !fails.length) { onOpenChange(false); setBulkText(""); }
     } finally {
       setLoading(false);
@@ -335,6 +364,9 @@ export function AccountModal({
               />
               <p className="text-xs text-muted-foreground">
                 Aceita <b>combolist</b> (<code className="text-foreground">user:senha:email:emailpass:auth_token:ct0</code>), token puro ou cookie. Com o <code className="text-foreground">ct0</code> na linha, adiciona direto (sem precisar detectar pelo X).
+              </p>
+              <p className="text-xs text-amber-500/90">
+                Depois de adicionar, cada conta é <b>testada de verdade no X</b> (posta e apaga um tweet) — as mortas/suspensas vão direto pra <b>Suspensas</b>. Pode demorar um pouco em listas grandes.
               </p>
               {bulkLines.length > 0 && (
                 <p className="text-xs text-muted-foreground">{bulkLines.length} conta(s) na lista</p>
