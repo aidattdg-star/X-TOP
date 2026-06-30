@@ -1048,6 +1048,36 @@ export const syncFollowerCounts = createServerFn({ method: "POST" })
   });
 
 // ============================================================================
+// QUARENTENA (shadowban) liga/desliga — por usuário. Default: DESLIGADA.
+// Desligada = conta em shadowban continua sendo usada normalmente nas ações.
+// Ligada = conta em shadowban deixa de ser usada (recolhida pra recuperar).
+// profiles só permite UPDATE via admin no RLS, então usamos service role aqui
+// (cada usuário só altera o PRÓPRIO profile — eq(context.userId)).
+// ============================================================================
+export const getQuarantineEnabled = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await (supabaseAdmin as any)
+      .from("profiles").select("quarantine_enabled").eq("id", context.userId).maybeSingle();
+    if (error) return { enabled: false }; // coluna pode não existir até rodar o SQL
+    return { enabled: data?.quarantine_enabled === true };
+  });
+
+export const setQuarantineEnabled = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { enabled: boolean }) =>
+    z.object({ enabled: z.boolean() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await (supabaseAdmin as any)
+      .from("profiles").update({ quarantine_enabled: data.enabled }).eq("id", context.userId);
+    if (error) throw new Error(`Não foi possível salvar — rode o QUARANTINE_TOGGLE.sql no Supabase. (${error.message})`);
+    return { ok: true, enabled: data.enabled };
+  });
+
+// ============================================================================
 // COMUNIDADES — puxa as comunidades visíveis/participadas por cada conta
 // e guarda em twitter_communities (pra depois postar dentro).
 // ============================================================================

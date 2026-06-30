@@ -387,7 +387,7 @@ function AccountsPage() {
             )}
             {accounts.some(isQuarantine) && (
               <FolderCard
-                label="Quarentena (shadowban)"
+                label="Shadowban"
                 count={accounts.filter(isQuarantine).length}
                 onClick={() => setFolderFilter("__quarantine__")}
                 quarantine
@@ -440,7 +440,7 @@ function AccountsPage() {
             )}
             {accounts.some(isQuarantine) && (
               <FolderPill
-                label="Quarentena"
+                label="Shadowban"
                 count={accounts.filter(isQuarantine).length}
                 active={folderFilter === "__quarantine__"}
                 onClick={() => setFolderFilter("__quarantine__")}

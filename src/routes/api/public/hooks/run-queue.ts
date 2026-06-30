@@ -119,9 +119,11 @@ async function handle(): Promise<Response> {
         const cleaned = accountIds.filter((id) => existingIds.has(id));
         await supabaseAdmin.from("automation_flows").update({ account_ids: cleaned } as never).eq("id", flow.id);
       }
-      // Executoras válidas: existem, não banidas, fora de aquecimento e fora de quarentena (shadowban).
+      // Executoras válidas: existem, não banidas, fora de aquecimento. Shadowban só
+      // EXCLUI se a quarentena estiver ligada pra esse usuário (senão usa normal).
+      const qOn = await quarantineEnabled(supabaseAdmin, flow.user_id);
       const accs = (accsRaw ?? []).filter(
-        (a: any) => a.status !== "banned" && (!a.warming_until || a.warming_until <= nowIsoChk) && !a.shadowban_at,
+        (a: any) => a.status !== "banned" && (!a.warming_until || a.warming_until <= nowIsoChk) && (!qOn || !a.shadowban_at),
       );
       let validAccountIds = accs.map((a: any) => a.id as string);
 
@@ -470,6 +472,18 @@ async function recoverStaleProcessing(admin: any) {
   }
 }
 
+// Lê se a QUARENTENA por shadowban está LIGADA pra esse usuário. Default: desligada
+// (false) — ou seja, conta em shadowban continua sendo usada normalmente.
+async function quarantineEnabled(admin: any, userId: string): Promise<boolean> {
+  if (!userId) return false;
+  try {
+    const { data } = await admin.from("profiles").select("quarantine_enabled").eq("id", userId).maybeSingle();
+    return data?.quarantine_enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 async function runTask(admin: any, task: any) {
   const {
     postTweet,
@@ -509,8 +523,9 @@ async function runTask(admin: any, task: any) {
     throw new Error(`__BANNED__:${acc.status}`);
   }
 
-  // Em quarentena (shadowban): fica parada pra recuperar — adia a tarefa.
-  if (acc.shadowban_at) {
+  // Em shadowban: só fica parada (quarentena) se o usuário tiver LIGADO a quarentena.
+  // Por padrão (desligada), a conta é usada normalmente mesmo marcada com shadowban.
+  if (acc.shadowban_at && (await quarantineEnabled(admin, task.user_id))) {
     throw new Error(`__QUARANTINE__:${acc.shadowban_at}`);
   }
 

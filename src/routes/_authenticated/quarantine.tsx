@@ -5,9 +5,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { EyeOff, Loader2, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Unlock } from "lucide-react";
-import { checkShadowban } from "@/lib/account-profile.functions";
+import { EyeOff, Loader2, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Unlock, ShieldAlert } from "lucide-react";
+import { checkShadowban, getQuarantineEnabled, setQuarantineEnabled } from "@/lib/account-profile.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/quarantine")({
@@ -33,9 +34,34 @@ function fmtAgo(iso?: string | null): string {
 function QuarantinePage() {
   const qc = useQueryClient();
   const runCheck = useServerFn(checkShadowban);
+  const runGetQ = useServerFn(getQuarantineEnabled);
+  const runSetQ = useServerFn(setQuarantineEnabled);
   const [busy, setBusy] = useState<string | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
   const [releasingAll, setReleasingAll] = useState(false);
+  const [savingToggle, setSavingToggle] = useState(false);
+
+  const { data: quarantineOn = false } = useQuery({
+    queryKey: ["quarantine-enabled"],
+    queryFn: async () => (await runGetQ()).enabled,
+  });
+
+  async function toggleQuarantine(next: boolean) {
+    setSavingToggle(true);
+    try {
+      await runSetQ({ data: { enabled: next } });
+      qc.setQueryData(["quarantine-enabled"], next);
+      toast.success(
+        next
+          ? "Quarentena LIGADA — contas em shadowban deixam de ser usadas nas ações."
+          : "Quarentena DESLIGADA — contas em shadowban continuam sendo usadas normalmente.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao salvar");
+    } finally {
+      setSavingToggle(false);
+    }
+  }
 
   const { data: accounts = [] } = useQuery<Acc[]>({
     queryKey: ["quarantine-accounts"],
@@ -107,9 +133,9 @@ function QuarantinePage() {
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-10 max-w-5xl mx-auto">
       <PageHeader
-        eyebrow="Recuperação"
-        title="Quarentena (shadowban)"
-        description="Contas em shadowban descansam aqui até voltarem ao normal. Enquanto estão na quarentena, NÃO são usadas em nenhuma ação."
+        eyebrow="Shadowban"
+        title="Pasta de Shadowban"
+        description="Contas detectadas com shadowban aparecem aqui. Por padrão elas CONTINUAM sendo usadas normalmente — ligue a quarentena abaixo só se quiser recolhê-las para descansar."
         actions={
           accounts.length > 0 ? (
             <>
@@ -126,8 +152,30 @@ function QuarantinePage() {
         }
       />
 
+      {/* Toggle: habilitar quarentena (recolher contas em shadowban) ou não */}
+      <div className="mt-8 liquid-glass rounded-2xl p-5 flex items-start gap-4">
+        <span className={cn(
+          "grid h-9 w-9 shrink-0 place-items-center rounded-lg border",
+          quarantineOn ? "bg-amber-500/15 border-amber-500/30 text-amber-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+        )}>
+          {quarantineOn ? <ShieldAlert className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground">Quarentena automática</p>
+          <p className="text-[13px] text-muted-foreground mt-0.5">
+            {quarantineOn
+              ? "LIGADA: contas em shadowban são recolhidas e NÃO entram nas ações automáticas até saírem do shadowban."
+              : "DESLIGADA: contas em shadowban continuam sendo usadas normalmente nas ações (só ficam marcadas aqui)."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+          {savingToggle && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <Switch checked={quarantineOn} disabled={savingToggle} onCheckedChange={toggleQuarantine} />
+        </div>
+      </div>
+
       {/* Guia de recuperação */}
-      <div className="mt-8 liquid-glass rounded-2xl p-5">
+      <div className="mt-6 liquid-glass rounded-2xl p-5">
         <div className="relative flex items-center gap-2.5 mb-3">
           <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/[0.06] border border-white/10 text-amber-400">
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -135,7 +183,7 @@ function QuarantinePage() {
           <p className="text-sm font-medium text-foreground">Como tirar uma conta do shadowban</p>
         </div>
         <div className="relative grid md:grid-cols-2 gap-x-6 gap-y-2 text-[13px] text-muted-foreground">
-          <p>① <b className="text-foreground">Parar tudo</b> — a conta fica parada aqui (já é automático).</p>
+          <p>① <b className="text-foreground">Parar tudo</b> — ligue a <b className="text-foreground">quarentena automática</b> acima pra recolher a conta (ou deixe usando, por sua conta e risco).</p>
           <p>② <b className="text-foreground">Descansar {REST_DAYS} dias</b> — pouca/nenhuma atividade. Às vezes leva até 2–3 semanas.</p>
           <p>③ <b className="text-foreground">Apagar tweets</b> recentes spammy/duplicados.</p>
           <p>④ <b className="text-foreground">Verificar telefone e e-mail</b> da conta no X.</p>
