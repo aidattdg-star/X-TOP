@@ -80,54 +80,16 @@ export const testProxyConnection = createServerFn({ method: "POST" })
     const serverIp = await serverIpPromise;
     const transparent = !!(reachable && exitIp && serverIp && exitIp === serverIp);
 
-    // 2) CLASSIFICAÇÃO (datacenter/VPN vs residencial/móvel). Só dá "bom" se DER pra
-    //    CONFIRMAR — se a checagem falhar, fica "unknown" (NÃO inventa "bom").
-    let classified = false;
-    let isHosting = false, isProxyFlag = false, isMobile = false, ispOrg = "";
-    if (reachable && !transparent) {
-      try {
-        const r = await proxied(
-          "http://ip-api.com/json/?fields=status,message,query,proxy,hosting,mobile,as,isp,org",
-          4000,
-        );
-        const j = JSON.parse(r.text);
-        if (j?.status === "success") {
-          isHosting = !!j.hosting; isProxyFlag = !!j.proxy; isMobile = !!j.mobile;
-          ispOrg = `${j.as ?? ""} ${j.isp ?? ""} ${j.org ?? ""}`;
-          if (j.query) exitIp = j.query;
-          classified = true;
-        }
-      } catch { /* tenta o fallback */ }
-      // fallback HTTPS (direto no IP de saída) quando o ip-api falha/limita.
-      if (!classified && exitIp) {
-        try {
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 4000);
-          const r = await fetch(`https://ipwho.is/${exitIp}`, { signal: ctrl.signal });
-          clearTimeout(t);
-          const j = JSON.parse(await r.text());
-          if (j?.success) {
-            ispOrg = `${j?.connection?.asn ?? ""} ${j?.connection?.isp ?? ""} ${j?.connection?.org ?? ""}`;
-            classified = true;
-          }
-        } catch { /* sem classificação */ }
-      }
-    }
-
-    // ASN/ISP/org de datacenter/host conhecido reforça a detecção.
-    const DC = /(amazon|aws|google|gcp|microsoft|azure|digitalocean|ovh|hetzner|linode|akamai|vultr|choopa|m247|leaseweb|contabo|oracle|alibaba|tencent|datacamp|g[\s-]?core|colo|host(ing)?|data\s?cent|\bvps\b|dedicated|cloud)/i;
-    const looksDatacenter = isHosting || isProxyFlag || (!!ispOrg && DC.test(ispOrg));
-
-    // 3) VEREDITO — regra: proxy que RESPONDE é usável (fica no Live). A
-    //    classificação datacenter/residencial é só um RÓTULO informativo; nunca
-    //    tira do Live. Só sai do Live se de fato não funcionar (morto/transparente).
+    // 2) VEREDITO — o que importa é FUNCIONAR. Proxy residencial é, tecnicamente,
+    //    um "proxy", então classificadores (ip-api etc.) o marcam como proxy/VPN e
+    //    davam falso "datacenter". Não usamos mais isso: proxy que responde e troca
+    //    o IP = BOM/usável (Live). Só sai do Live quem não funciona ou é lento demais.
     let quality: ProxyQuality;
     let detail = "";
     if (!reachable) { quality = "dead"; detail = lastDetail || "não respondeu"; }
     else if (transparent) { quality = "dead"; detail = "transparente: não troca o IP (inútil p/ isolar conta)"; }
-    else if (looksDatacenter && !isMobile) { quality = "datacenter"; detail = "responde (usável) — mas o IP parece datacenter/VPN"; }
-    else if (latency_ms > 6000) { quality = "slow"; detail = `responde (usável), porém lento (${latency_ms}ms)`; }
-    else { quality = "good"; detail = classified ? (isMobile ? "residencial/móvel" : "residencial") : "respondeu OK"; }
+    else if (latency_ms > 8000) { quality = "slow"; detail = `responde (usável), porém muito lento (${latency_ms}ms)`; }
+    else { quality = "good"; detail = `usável · ${latency_ms}ms`; }
 
     const status = reachable && !transparent ? "active" : "dead";
     await context.supabase

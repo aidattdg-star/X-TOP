@@ -794,20 +794,21 @@ function ProxyTab({ active, onClick, children }: { active: boolean; onClick: () 
 
 function QualityBadge({ quality, latency, fails }: { quality?: string | null; latency?: number | null; fails?: number | null }) {
   if (!quality) return <span className="text-xs text-muted-foreground">— não testado</span>;
+  // Legado: "datacenter"/"unknown" vinham do classificador antigo (falso positivo
+  // em proxy residencial). Hoje proxy que responde é usável -> mostra como Bom.
+  const q0 = quality === "datacenter" || quality === "unknown" ? "good" : quality;
   const map: Record<string, { label: string; cls: string }> = {
     good: { label: "Bom", cls: "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" },
     slow: { label: "Lento", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
-    datacenter: { label: "Datacenter — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
     dead: { label: "Morto — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
-    unknown: { label: "Não confirmado", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
   };
-  const q = map[quality] ?? { label: quality, cls: "border-border text-muted-foreground" };
+  const q = map[q0] ?? { label: q0, cls: "border-border text-muted-foreground" };
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${q.cls}`}>
         {q.label}
       </span>
-      {typeof latency === "number" && quality !== "dead" && (
+      {typeof latency === "number" && q0 !== "dead" && (
         <span className="text-[10px] text-muted-foreground tabular-nums">{latency}ms</span>
       )}
       {(fails ?? 0) >= 5 && <span className="text-[10px] text-red-400">{fails} falhas</span>}
