@@ -5,11 +5,19 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff, Flame, Zap } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, ChevronDown, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff, Flame, Zap, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testAccountsOnline, checkShadowban, syncFollowerCounts } from "@/lib/account-profile.functions";
@@ -216,6 +224,8 @@ function AccountsPage() {
   const refreshCount = (accounts ?? []).filter(
     (a: any) => a.cooldown_until && Date.parse(a.cooldown_until) > Date.now(),
   ).length;
+  // Alguma ação de manutenção rodando? (pro spinner do menu "Ações")
+  const busyMaint = testingAccounts || checkingSb || syncingFollowers || releasingRefresh;
 
   // null = visão de pastas (cards). "__all__"/"__none__"/id = vendo contas de uma pasta.
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
@@ -358,22 +368,36 @@ function AccountsPage() {
         description="Isolamento máximo: cada conta do X opera através de um proxy dedicado."
         actions={
           <>
-            <Button variant="outline" onClick={testAllAccounts} disabled={testingAccounts || !accounts?.length}>
-              {testingAccounts ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Activity className="h-4 w-4 mr-2" strokeWidth={1.5} />}
-              {testingAccounts ? `Testando ${acctTestDone.done}/${acctTestDone.total}${acctTestDone.die ? ` · ${acctTestDone.die} die` : ""}` : "Testar contas"}
-            </Button>
-            <Button variant="outline" onClick={checkAllShadowban} disabled={checkingSb || !accounts?.length}>
-              {checkingSb ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <EyeOff className="h-4 w-4 mr-2" strokeWidth={1.5} />}
-              {checkingSb ? `Shadowban ${sbDone.done}/${sbDone.total}${sbDone.sb ? ` · ${sbDone.sb}` : ""}` : "Verificar shadowban"}
-            </Button>
-            <Button variant="outline" onClick={handleSyncFollowers} disabled={syncingFollowers || !accounts?.length}>
-              {syncingFollowers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Flame className="h-4 w-4 mr-2" strokeWidth={1.5} />}
-              {syncingFollowers ? "Sincronizando..." : "Sync seguidores"}
-            </Button>
-            <Button variant="outline" onClick={releaseRefresh} disabled={releasingRefresh || !accounts?.length} className="border-amber-500/40 text-amber-600 dark:text-amber-400">
-              {releasingRefresh ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" strokeWidth={1.5} />}
-              {releasingRefresh ? "Liberando..." : refreshCount > 0 ? `Tirar do refresh (${refreshCount})` : "Tirar do refresh"}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={!accounts?.length}>
+                  {busyMaint ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wrench className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+                  Ações
+                  <ChevronDown className="h-4 w-4 ml-1.5 opacity-60" strokeWidth={1.5} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuLabel>Manutenção das contas</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2" disabled={testingAccounts} onSelect={(e) => { e.preventDefault(); testAllAccounts(); }}>
+                  {testingAccounts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4 text-sky-400" strokeWidth={1.75} />}
+                  <span>{testingAccounts ? `Testando ${acctTestDone.done}/${acctTestDone.total}${acctTestDone.die ? ` · ${acctTestDone.die} die` : ""}` : "Testar contas"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2" disabled={checkingSb} onSelect={(e) => { e.preventDefault(); checkAllShadowban(); }}>
+                  {checkingSb ? <Loader2 className="h-4 w-4 animate-spin" /> : <EyeOff className="h-4 w-4 text-amber-400" strokeWidth={1.75} />}
+                  <span>{checkingSb ? `Shadowban ${sbDone.done}/${sbDone.total}${sbDone.sb ? ` · ${sbDone.sb}` : ""}` : "Verificar shadowban"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2" disabled={syncingFollowers} onSelect={(e) => { e.preventDefault(); handleSyncFollowers(); }}>
+                  {syncingFollowers ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flame className="h-4 w-4 text-orange-400" strokeWidth={1.75} />}
+                  <span>{syncingFollowers ? "Sincronizando..." : "Sync seguidores"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2" disabled={releasingRefresh} onSelect={(e) => { e.preventDefault(); releaseRefresh(); }}>
+                  {releasingRefresh ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 text-amber-400" strokeWidth={1.75} />}
+                  <span>{releasingRefresh ? "Liberando..." : refreshCount > 0 ? `Tirar do refresh (${refreshCount})` : "Tirar do refresh"}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy
             </Button>
