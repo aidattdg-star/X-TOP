@@ -47,13 +47,14 @@ function AccountsPage() {
   const [syncingFollowers, setSyncingFollowers] = useState(false);
   const [releasingRefresh, setReleasingRefresh] = useState(false);
 
-  // Tira as contas do refresh (zera cooldown + cota) pra poder usar de novo já.
+  // Tira TODAS as contas do refresh (zera cooldown + cota) pra poder usar de novo já.
   async function releaseRefresh() {
-    const ids = (accounts ?? [])
-      .filter((a: any) => a.cooldown_until && Date.parse(a.cooldown_until) > Date.now())
-      .map((a: any) => a.id as string);
-    if (!ids.length) return toast.info("Nenhuma conta em refresh agora.");
-    if (!confirm(`Tirar ${ids.length} conta(s) do refresh (cooldown pós-RT)? Elas voltam a ser usadas imediatamente.`)) return;
+    const ids = (accounts ?? []).map((a: any) => a.id as string);
+    if (!ids.length) return toast.info("Nenhuma conta.");
+    const emRefresh = (accounts ?? []).filter(
+      (a: any) => a.cooldown_until && Date.parse(a.cooldown_until) > Date.now(),
+    ).length;
+    if (!confirm(`Liberar o refresh de TODAS as ${ids.length} conta(s)? Elas voltam a ser usadas imediatamente${emRefresh ? ` (${emRefresh} em refresh agora)` : ""}.`)) return;
     setReleasingRefresh(true);
     try {
       const { error } = await supabase
@@ -66,7 +67,7 @@ function AccountsPage() {
           .from("twitter_accounts").update({ cooldown_until: null } as never).in("id", ids);
         if (e2) throw e2;
       }
-      toast.success(`${ids.length} conta(s) liberadas do refresh — já dá pra usar.`);
+      toast.success(`Refresh liberado em ${ids.length} conta(s) — já dá pra usar.`);
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao liberar refresh");
@@ -369,12 +370,10 @@ function AccountsPage() {
               {syncingFollowers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Flame className="h-4 w-4 mr-2" strokeWidth={1.5} />}
               {syncingFollowers ? "Sincronizando..." : "Sync seguidores"}
             </Button>
-            {refreshCount > 0 && (
-              <Button variant="outline" onClick={releaseRefresh} disabled={releasingRefresh} className="border-amber-500/40 text-amber-600 dark:text-amber-400">
-                {releasingRefresh ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" strokeWidth={1.5} />}
-                {releasingRefresh ? "Liberando..." : `Tirar do refresh (${refreshCount})`}
-              </Button>
-            )}
+            <Button variant="outline" onClick={releaseRefresh} disabled={releasingRefresh || !accounts?.length} className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+              {releasingRefresh ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+              {releasingRefresh ? "Liberando..." : refreshCount > 0 ? `Tirar do refresh (${refreshCount})` : "Tirar do refresh"}
+            </Button>
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy
             </Button>
