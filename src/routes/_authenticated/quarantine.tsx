@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { EyeOff, Loader2, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle } from "lucide-react";
+import { EyeOff, Loader2, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Unlock } from "lucide-react";
 import { checkShadowban } from "@/lib/account-profile.functions";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +35,7 @@ function QuarantinePage() {
   const runCheck = useServerFn(checkShadowban);
   const [busy, setBusy] = useState<string | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
+  const [releasingAll, setReleasingAll] = useState(false);
 
   const { data: accounts = [] } = useQuery<Acc[]>({
     queryKey: ["quarantine-accounts"],
@@ -69,6 +70,24 @@ function QuarantinePage() {
     }
   }
 
+  async function releaseAll() {
+    const ids = accounts.map((a) => a.id);
+    if (!ids.length) return;
+    if (!confirm(`Liberar TODAS as ${ids.length} conta(s) da quarentena de uma vez? Elas voltam a ser usadas nas ações mesmo se ainda estiverem em shadowban (use por sua conta e risco).`)) return;
+    setReleasingAll(true);
+    try {
+      const { error } = await supabase.from("twitter_accounts").update({ shadowban_at: null } as never).in("id", ids);
+      if (error) throw error;
+      toast.success(`${ids.length} conta(s) liberadas da quarentena`);
+      qc.invalidateQueries({ queryKey: ["quarantine-accounts"] });
+      qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao liberar");
+    } finally {
+      setReleasingAll(false);
+    }
+  }
+
   async function release(id: string, username: string) {
     if (!confirm(`Liberar @${username} da quarentena manualmente? Ela volta a ser usada nas ações (faça só se tiver certeza que saiu do shadowban).`)) return;
     setBusy(id);
@@ -93,10 +112,16 @@ function QuarantinePage() {
         description="Contas em shadowban descansam aqui até voltarem ao normal. Enquanto estão na quarentena, NÃO são usadas em nenhuma ação."
         actions={
           accounts.length > 0 ? (
-            <Button variant="outline" onClick={() => recheck(accounts.map((a) => a.id))} disabled={checkingAll}>
-              {checkingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-              Re-verificar todas
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => recheck(accounts.map((a) => a.id))} disabled={checkingAll || releasingAll}>
+                {checkingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                Re-verificar todas
+              </Button>
+              <Button onClick={releaseAll} disabled={releasingAll || checkingAll} className="bg-amber-500/90 hover:bg-amber-500 text-black">
+                {releasingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Unlock className="h-4 w-4 mr-2" />}
+                Liberar todas
+              </Button>
+            </>
           ) : undefined
         }
       />
