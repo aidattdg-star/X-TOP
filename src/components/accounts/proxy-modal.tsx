@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -86,6 +86,34 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ label: "", ip: "", port: "", username: "", password: "" });
   const [bulk, setBulk] = useState("");
+  const [folderName, setFolderName] = useState("");
+
+  // Pastas de proxy existentes (pra sugerir). Criar pasta = digitar um nome novo.
+  const { data: folders } = useQuery({
+    queryKey: ["proxy_folders"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("proxy_folders").select("id, name").order("name");
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+
+  // Acha a pasta pelo nome ou cria; devolve o id (ou null se vazio).
+  async function ensureProxyFolderId(userId: string, name: string): Promise<string | null> {
+    const n = name.trim();
+    if (!n) return null;
+    const { data: existing } = await (supabase as any)
+      .from("proxy_folders").select("id").eq("user_id", userId).eq("name", n).maybeSingle();
+    if (existing) return existing.id;
+    const { data: created, error } = await (supabase as any)
+      .from("proxy_folders").insert({ user_id: userId, name: n }).select("id").single();
+    if (error || !created) {
+      const { data: again } = await (supabase as any)
+        .from("proxy_folders").select("id").eq("user_id", userId).eq("name", n).maybeSingle();
+      return again?.id ?? null;
+    }
+    return created.id;
+  }
 
   const parsedBulk = bulk
     .split("\n")
@@ -96,6 +124,7 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
   function reset() {
     setForm({ label: "", ip: "", port: "", username: "", password: "" });
     setBulk("");
+    setFolderName("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -104,6 +133,7 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
     try {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Não autenticado");
+      const folder_id = await ensureProxyFolderId(u.user.id, folderName);
 
       if (mode === "single") {
         const parsed = schema.safeParse(form);
@@ -115,9 +145,10 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
           port: parsed.data.port,
           username: parsed.data.username || null,
           password: parsed.data.password || null,
-        });
+          folder_id,
+        } as any);
         if (error) throw error;
-        toast.success("Proxy adicionado");
+        toast.success(`Proxy adicionado${folder_id ? ` na pasta "${folderName.trim()}"` : ""}`);
       } else {
         if (!parsedBulk.length) { setLoading(false); return toast.error("Nenhuma linha de proxy válida."); }
         const rows = parsedBulk.map((p) => ({
@@ -127,13 +158,15 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
           port: p.port,
           username: p.username,
           password: p.password,
+          folder_id,
         }));
-        const { error } = await supabase.from("proxies").insert(rows);
+        const { error } = await supabase.from("proxies").insert(rows as any);
         if (error) throw error;
         const skipped = bulkLines - parsedBulk.length;
-        toast.success(`${parsedBulk.length} proxies adicionados${skipped > 0 ? ` · ${skipped} linha(s) ignorada(s)` : ""}`);
+        toast.success(`${parsedBulk.length} proxies adicionados${folder_id ? ` na pasta "${folderName.trim()}"` : ""}${skipped > 0 ? ` · ${skipped} linha(s) ignorada(s)` : ""}`);
       }
       qc.invalidateQueries({ queryKey: ["proxies"] });
+      qc.invalidateQueries({ queryKey: ["proxy_folders"] });
       onOpenChange(false);
       reset();
     } catch (e) {
@@ -192,6 +225,23 @@ export function ProxyModal({ open, onOpenChange }: { open: boolean; onOpenChange
               )}
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Pasta (opcional)</Label>
+            <Input
+              list="proxy-folder-list"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              placeholder="Ex.: Lote residencial — escolha existente ou digite uma nova"
+              className="h-10"
+            />
+            <datalist id="proxy-folder-list">
+              {(folders ?? []).map((f) => <option key={f.id} value={f.name} />)}
+            </datalist>
+            <p className="text-[11px] text-muted-foreground">
+              Agrupa esses proxies numa pasta. Na importação de contas você escolhe a pasta e cada conta pega um proxy diferente dela.
+            </p>
+          </div>
 
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

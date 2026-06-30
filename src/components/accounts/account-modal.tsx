@@ -129,6 +129,30 @@ export function AccountModal({
   // Apenas proxies recém-adicionados / livres (não atribuídos a nenhuma conta).
   const availableProxies = proxies.filter((p) => !usedProxyIds?.has(p.id));
 
+  // Pastas de proxy + metadados (folder_id) pra atribuir 1 proxy único por conta.
+  const { data: proxyFolders } = useQuery({
+    queryKey: ["proxy_folders"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("proxy_folders").select("id, name").order("name");
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+  const { data: proxyMeta } = useQuery({
+    queryKey: ["proxies_with_folder"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("proxies").select("id, folder_id");
+      return (data ?? []) as { id: string; folder_id: string | null }[];
+    },
+  });
+  // proxies LIVRES (não usados por conta) de uma pasta, em ordem.
+  function freeProxyIdsInFolder(folderId: string): string[] {
+    return (proxyMeta ?? [])
+      .filter((p) => p.folder_id === folderId && !usedProxyIds?.has(p.id))
+      .map((p) => p.id);
+  }
+
   // Acha a pasta pelo nome ou cria uma nova; devolve o id (ou null se vazio).
   async function ensureFolderId(userId: string, name: string): Promise<string | null> {
     const n = name.trim();
@@ -241,6 +265,15 @@ export function AccountModal({
     if (bulkProxyId === "__rotate__" && !availableProxies.length)
       return toast.error("Nenhum proxy novo/livre disponível. Adicione proxies ou libere os em uso.");
 
+    // Modo PASTA: cada conta pega um proxy ÚNICO da pasta (sem repetir).
+    const folderMode = bulkProxyId.startsWith("folder:");
+    const folderPool = folderMode ? freeProxyIdsInFolder(bulkProxyId.slice(7)) : [];
+    let poolIdx = 0;
+    if (folderMode && !folderPool.length)
+      return toast.error("Essa pasta não tem proxy livre. Adicione mais proxies à pasta ou libere os em uso.");
+    if (folderMode && folderPool.length < lines.length)
+      toast.warning(`A pasta tem ${folderPool.length} proxy(s) livre(s) para ${lines.length} conta(s) — as que sobrarem ficam sem proxy.`);
+
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return toast.error("Não autenticado");
 
@@ -254,10 +287,19 @@ export function AccountModal({
         setBulkProgress(Math.round((i / lines.length) * 100));
         const { auth_token, cookie_string, ct0, username } = parseInput(lines[i]);
         if (!auth_token) { fails.push(`Linha ${i + 1}: sem token (auth_token) válido`); continue; }
-        const proxy_id =
-          bulkProxyId === "__rotate__"
-            ? availableProxies[i % availableProxies.length].id
-            : bulkProxyId;
+        let proxy_id: string | null;
+        if (folderMode) {
+          // 1 proxy ÚNICO da pasta por conta — sem repetir.
+          if (poolIdx >= folderPool.length) {
+            fails.push(`Linha ${i + 1}: acabaram os proxies livres da pasta`);
+            continue;
+          }
+          proxy_id = folderPool[poolIdx++];
+        } else if (bulkProxyId === "__rotate__") {
+          proxy_id = availableProxies[i % availableProxies.length].id;
+        } else {
+          proxy_id = bulkProxyId;
+        }
         try {
           if (ct0 && username) {
             // Já temos ct0 + username (combolist): insere direto, sem detectar pelo X.
@@ -378,13 +420,21 @@ export function AccountModal({
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__rotate__">Rodízio entre os proxies novos</SelectItem>
+                  {(proxyFolders ?? []).map((f) => {
+                    const n = freeProxyIdsInFolder(f.id).length;
+                    return (
+                      <SelectItem key={f.id} value={`folder:${f.id}`} disabled={n === 0}>
+                        📁 {f.name} — {n} livre(s) · 1 por conta
+                      </SelectItem>
+                    );
+                  })}
                   {availableProxies.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.ip}:{p.port}{p.label ? ` · ${p.label}` : ""}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                {availableProxies.length} proxy(s) novo(s)/livre(s). Proxies já em uso não aparecem.
+                {availableProxies.length} proxy(s) novo(s)/livre(s). Escolha uma <b>pasta</b> 📁 pra dar 1 proxy diferente por conta (sem repetir). Proxies já em uso não aparecem.
               </p>
             </div>
             <FolderField value={folderName} onChange={setFolderName} folders={folders ?? []} />
