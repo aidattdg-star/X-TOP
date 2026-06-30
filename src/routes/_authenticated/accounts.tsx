@@ -9,10 +9,10 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff, Flame } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
-import { testAccountsOnline, checkShadowban } from "@/lib/account-profile.functions";
+import { testAccountsOnline, checkShadowban, syncFollowerCounts } from "@/lib/account-profile.functions";
 import { testProxyConnection } from "@/lib/proxies.functions";
 import { cn } from "@/lib/utils";
 
@@ -33,10 +33,12 @@ function AccountsPage() {
   const runTestPost = useServerFn(testPostTweets);
   const runTestAccountsOnline = useServerFn(testAccountsOnline);
   const runCheckShadowban = useServerFn(checkShadowban);
+  const runSyncFollowers = useServerFn(syncFollowerCounts);
   const [testingAccounts, setTestingAccounts] = useState(false);
   const [acctTestDone, setAcctTestDone] = useState({ done: 0, total: 0, die: 0 });
   const [checkingSb, setCheckingSb] = useState(false);
   const [sbDone, setSbDone] = useState({ done: 0, total: 0, sb: 0 });
+  const [syncingFollowers, setSyncingFollowers] = useState(false);
 
   // Verifica shadowban (search ban) em lotes; quem estiver em shadowban vai pra Quarentena.
   async function checkAllShadowban() {
@@ -59,6 +61,19 @@ function AccountsPage() {
       toast.success(`Shadowban: ${sb} em quarentena · ${ok} ok · ${semTweets} sem tweets${erro ? ` · ${erro} erro` : ""}`);
     } finally {
       setCheckingSb(false);
+    }
+  }
+
+  async function handleSyncFollowers() {
+    setSyncingFollowers(true);
+    try {
+      const r = await runSyncFollowers({ data: {} });
+      toast.success(`Seguidores sincronizados: ${r.updated} conta(s)${r.errors ? ` · ${r.errors} erro(s)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao sincronizar");
+    } finally {
+      setSyncingFollowers(false);
     }
   }
 
@@ -300,6 +315,10 @@ function AccountsPage() {
             <Button variant="outline" onClick={checkAllShadowban} disabled={checkingSb || !accounts?.length}>
               {checkingSb ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <EyeOff className="h-4 w-4 mr-2" strokeWidth={1.5} />}
               {checkingSb ? `Shadowban ${sbDone.done}/${sbDone.total}${sbDone.sb ? ` · ${sbDone.sb}` : ""}` : "Verificar shadowban"}
+            </Button>
+            <Button variant="outline" onClick={handleSyncFollowers} disabled={syncingFollowers || !accounts?.length}>
+              {syncingFollowers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Flame className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+              {syncingFollowers ? "Sincronizando..." : "Sync seguidores"}
             </Button>
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy

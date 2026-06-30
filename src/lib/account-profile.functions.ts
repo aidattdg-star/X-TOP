@@ -410,8 +410,13 @@ export const testAccountsOnline = createServerFn({ method: "POST" })
           .from("twitter_accounts").select("proxy_id").eq("id", accountId).maybeSingle();
         const proxy = await loadProxyOrFallback(context.supabase, pa?.proxy_id);
         // valida a sessão da própria conta (passa pelo proxy)
-        await verifySession(tokens, acc.username, buildDispatcher(proxy));
+        const sessionInfo = await verifySession(tokens, acc.username, buildDispatcher(proxy));
         await persistRefreshed(context.supabase, accountId, tokens);
+        // aproveita pra salvar a contagem de seguidores (se a coluna existir)
+        if (sessionInfo.followers_count > 0) {
+          await context.supabase.from("twitter_accounts")
+            .update({ follower_count: sessionInfo.followers_count } as never).eq("id", accountId);
+        }
         results.push({ accountId, username, status: "online" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -967,4 +972,49 @@ export const scheduleImageCampaign = createServerFn({ method: "POST" })
       if (error) throw new Error(`Falha ao agendar campanha: ${error.message}`);
     }
     return { flow_id: flow.id, tasks: rows.length, images: imageIds.length, cycles, days: data.days };
+  });
+
+// ============================================================================
+// SYNC FOLLOWER COUNT — atualiza follower_count de todas as contas ativas
+// ============================================================================
+export const syncFollowerCounts = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { accountIds?: string[] }) =>
+    z.object({ accountIds: z.array(z.string().uuid()).max(200).optional() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { verifySession, buildDispatcher } = await import("@/lib/twitter-client.server");
+    const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
+
+    // busca as contas solicitadas (ou todas as ativas do user)
+    let query = context.supabase
+      .from("twitter_accounts")
+      .select("id, username, auth_tokens, proxy_id, status")
+      .eq("user_id", context.userId)
+      .not("status", "in", '("banned","suspended")');
+    if (data.accountIds?.length) {
+      query = query.in("id", data.accountIds);
+    }
+    const { data: rows } = await query;
+    if (!rows?.length) return { updated: 0, errors: 0 };
+
+    let updated = 0, errors = 0;
+    for (const row of rows) {
+      const tokens = row.auth_tokens as any;
+      if (!tokens?.ct0 || !tokens?.auth_token) continue;
+      try {
+        const proxy = await loadProxyOrFallback(context.supabase, row.proxy_id);
+        const info = await verifySession(tokens, row.username, buildDispatcher(proxy));
+        if (info.followers_count >= 0) {
+          await context.supabase
+            .from("twitter_accounts")
+            .update({ follower_count: info.followers_count } as never)
+            .eq("id", row.id);
+          updated++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+    return { updated, errors, total: rows.length };
   });

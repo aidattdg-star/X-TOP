@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -24,8 +25,13 @@ import {
   Trophy,
   Heart,
   ShieldCheck,
+  Flame,
+  RefreshCw,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
+import { syncFollowerCounts } from "@/lib/account-profile.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -104,7 +110,10 @@ function timeAgo(ts: number): string {
 function Dashboard() {
   const [period, setPeriod] = useState<PeriodKey>("7d");
   const [email, setEmail] = useState<string | null>(null);
+  const [syncingFollowers, setSyncingFollowers] = useState(false);
   const days = PERIODS.find((p) => p.key === period)!.days;
+  const qc = useQueryClient();
+  const runSyncFollowers = useServerFn(syncFollowerCounts);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
@@ -169,6 +178,23 @@ function Dashboard() {
         return t > m ? t : m;
       }, 0);
       return { total, accounts: rows.length, updated };
+    },
+  });
+
+  // Ranking por seguidores — direto da coluna follower_count na tabela
+  const { data: followerRanking } = useQuery({
+    queryKey: ["follower-ranking"],
+    refetchInterval: 60000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("twitter_accounts")
+        .select("id, username, profile_picture_url, follower_count, status")
+        .not("status", "in", '("banned","suspended")')
+        .not("follower_count", "is", null)
+        .order("follower_count", { ascending: false })
+        .limit(10);
+      if (error) return [];
+      return (data ?? []) as Array<{ id: string; username: string; profile_picture_url: string | null; follower_count: number; status: string }>;
     },
   });
 
@@ -286,7 +312,21 @@ function Dashboard() {
   }, [queue, accounts]);
 
   const maxTop = topAccounts[0]?.value ?? 1;
+  const maxFollowers = followerRanking?.[0]?.follower_count ?? 1;
   const name = email ? email.split("@")[0] : "";
+
+  async function handleSyncFollowers() {
+    setSyncingFollowers(true);
+    try {
+      const r = await runSyncFollowers({ data: {} });
+      toast.success(`${r.updated} conta(s) sincronizadas${r.errors ? ` · ${r.errors} erro(s)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["follower-ranking"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao sincronizar");
+    } finally {
+      setSyncingFollowers(false);
+    }
+  }
 
   return (
     <div className="relative px-4 sm:px-6 lg:px-10 py-6 lg:py-9 max-w-7xl mx-auto">
@@ -597,6 +637,73 @@ function Dashboard() {
               </ul>
             )}
           </Panel>
+        </div>
+
+        {/* Ranking por seguidores */}
+        <div className="mt-4">
+          <div className="led-edge rounded-xl border border-white/[0.06] bg-white/[0.018] overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-white/[0.05] flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Flame className="h-3.5 w-3.5 text-orange-400" strokeWidth={1.75} />
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Contas mais seguidas</p>
+              </div>
+              <button
+                onClick={handleSyncFollowers}
+                disabled={syncingFollowers}
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                {syncingFollowers ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Sincronizar
+              </button>
+            </div>
+            {!followerRanking?.length ? (
+              <div className="px-5 py-10 text-center text-xs text-muted-foreground">
+                <p>Nenhum dado de seguidores ainda.</p>
+                <p className="mt-1">Clique <b className="text-foreground">Sincronizar</b> ou rode <b className="text-foreground">Testar contas</b> para coletar.</p>
+              </div>
+            ) : (
+              <ul className="p-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-1">
+                {followerRanking.map((a, i) => (
+                  <li key={a.id} className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-white/[0.03]">
+                    <span
+                      className={cn(
+                        "grid h-6 w-6 shrink-0 place-items-center rounded-lg text-[11px] font-semibold tabular-nums",
+                        i === 0 ? "bg-orange-500/20 text-orange-300" : "bg-white/[0.06] text-muted-foreground",
+                      )}
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="h-7 w-7 shrink-0 rounded-full overflow-hidden bg-white/[0.06] grid place-items-center text-[10px] text-muted-foreground uppercase ring-1 ring-white/10">
+                      {a.profile_picture_url ? (
+                        <img src={a.profile_picture_url} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        a.username.slice(0, 2)
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] text-foreground truncate">@{a.username}</p>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${(a.follower_count / maxFollowers) * 100}%`,
+                              background: i === 0 ? "#f97316" : BRAND,
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{fmtNum(a.follower_count)}</span>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
     </div>

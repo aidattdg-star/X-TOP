@@ -331,6 +331,7 @@ function parseUserResult(result: any, fallbackScreenName: string) {
     screen_name: String(core?.screen_name ?? legacy?.screen_name ?? fallbackScreenName),
     name: String(core?.name ?? legacy?.name ?? ""),
     profile_picture_url: String(avatar?.image_url ?? legacy?.profile_image_url_https ?? "").replace("_normal", ""),
+    followers_count: Number(legacy?.followers_count ?? 0),
   };
 }
 
@@ -508,7 +509,7 @@ export async function verifySession(
   tokens: AuthTokens,
   screenName: string,
   _d?: Dispatcher,
-): Promise<{ ok: true; id: string; screen_name: string; name: string }> {
+): Promise<{ ok: true; id: string; screen_name: string; name: string; followers_count: number }> {
   const clean = screenName.replace(/^@/, "");
   const json = await gqlGet(
     "UserByScreenName",
@@ -524,6 +525,7 @@ export async function verifySession(
     id: user.id,
     screen_name: user.screen_name,
     name: user.name,
+    followers_count: user.followers_count,
   };
 }
 
