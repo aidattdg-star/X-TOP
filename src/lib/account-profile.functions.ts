@@ -986,35 +986,43 @@ export const syncFollowerCounts = createServerFn({ method: "POST" })
     const { verifySession, buildDispatcher } = await import("@/lib/twitter-client.server");
     const { loadProxyOrFallback } = await import("@/lib/proxy-pool.server");
 
-    // busca as contas solicitadas (ou todas as ativas do user)
+    // busca as contas do user (filtra banidas/suspensas no JS — mais robusto que .not in)
     let query = context.supabase
       .from("twitter_accounts")
       .select("id, username, auth_tokens, proxy_id, status")
-      .eq("user_id", context.userId)
-      .not("status", "in", '("banned","suspended")');
+      .eq("user_id", context.userId);
     if (data.accountIds?.length) {
       query = query.in("id", data.accountIds);
     }
-    const { data: rows } = await query;
-    if (!rows?.length) return { updated: 0, errors: 0 };
+    const { data: allRows, error: qErr } = await query;
+    if (qErr) throw new Error(`Falha ao buscar contas: ${qErr.message}`);
+    const rows = (allRows ?? []).filter(
+      (r: any) => r.status !== "banned" && r.status !== "suspended",
+    );
+    if (!rows.length) return { updated: 0, errors: 0, total: 0, skipped: (allRows ?? []).length };
 
-    let updated = 0, errors = 0;
+    let updated = 0, errors = 0, skipped = 0;
+    const errSamples: string[] = [];
     for (const row of rows) {
       const tokens = row.auth_tokens as any;
-      if (!tokens?.ct0 || !tokens?.auth_token) continue;
+      if (!tokens?.ct0 || !tokens?.auth_token) { skipped++; continue; }
       try {
         const proxy = await loadProxyOrFallback(context.supabase, row.proxy_id);
         const info = await verifySession(tokens, row.username, buildDispatcher(proxy));
-        if (info.followers_count >= 0) {
-          await context.supabase
-            .from("twitter_accounts")
-            .update({ follower_count: info.followers_count } as never)
-            .eq("id", row.id);
+        const { error: upErr } = await context.supabase
+          .from("twitter_accounts")
+          .update({ follower_count: info.followers_count } as never)
+          .eq("id", row.id);
+        if (upErr) {
+          errors++;
+          if (errSamples.length < 3) errSamples.push(`@${row.username}: ${upErr.message.slice(0, 80)}`);
+        } else {
           updated++;
         }
-      } catch {
+      } catch (e) {
         errors++;
+        if (errSamples.length < 3) errSamples.push(`@${row.username}: ${(e as Error).message.slice(0, 80)}`);
       }
     }
-    return { updated, errors, total: rows.length };
+    return { updated, errors, skipped, total: rows.length, errSamples };
   });

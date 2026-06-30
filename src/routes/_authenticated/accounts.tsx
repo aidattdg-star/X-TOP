@@ -74,7 +74,13 @@ function AccountsPage() {
     setSyncingFollowers(true);
     try {
       const r = await runSyncFollowers({ data: {} });
-      toast.success(`Seguidores sincronizados: ${r.updated} conta(s)${r.errors ? ` · ${r.errors} erro(s)` : ""}`);
+      if (r.updated > 0) {
+        toast.success(`Seguidores sincronizados: ${r.updated} conta(s)${r.errors ? ` · ${r.errors} erro(s)` : ""}`);
+      } else if (r.errors > 0) {
+        toast.error(`Falhou em todas (${r.errors}). ${(r as any).errSamples?.[0] ?? ""}`);
+      } else {
+        toast.info(`Nenhuma conta atualizada (${(r as any).total ?? 0} testadas, ${(r as any).skipped ?? 0} sem tokens).`);
+      }
       qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao sincronizar");
