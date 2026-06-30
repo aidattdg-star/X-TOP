@@ -226,15 +226,10 @@ function AccountsPage() {
     try {
       const res = await runTestProxy({ data: { proxy_id: id } });
       const q = (res as any).quality as string | undefined;
-      const qLabel = q === "good" ? "BOM (residencial)"
-        : q === "slow" ? "lento"
-        : q === "datacenter" ? "DATACENTER — troque"
-        : q === "unknown" ? "não confirmado — teste de novo"
-        : "morto";
-      if (res.status === "active" && q === "good") {
-        toast.success(`Proxy ${qLabel} · ${res.latency_ms}ms${res.exit_ip ? ` · IP ${res.exit_ip}` : ""}`);
-      } else if (res.status === "active") {
-        toast.warning(`Proxy ${qLabel}${res.detail ? ` · ${res.detail}` : ""}${res.latency_ms ? ` · ${res.latency_ms}ms` : ""}`);
+      if (res.status === "active") {
+        // Qualquer proxy que responde é usável (fica no Live). Rótulo é só informativo.
+        const tag = q === "datacenter" ? " · datacenter (usável, +arriscado)" : q === "slow" ? " · lento" : "";
+        toast.success(`Proxy OK · usável${tag} · ${res.latency_ms}ms${res.exit_ip ? ` · IP ${res.exit_ip}` : ""}`);
       } else {
         toast.error(`Proxy falhou${res.detail ? `: ${res.detail}` : ""}`);
       }
@@ -777,8 +772,9 @@ function isDieProxy(p: any): boolean {
   return p?.status === "dead" || p?.quality === "dead";
 }
 function isBadProxy(p: any): boolean {
-  // "unknown" = respondeu mas não deu pra confirmar residencial — não entra no Live (que é só BOM).
-  return p?.quality === "datacenter" || p?.quality === "slow" || p?.quality === "unknown" || (p?.fail_count ?? 0) >= 5;
+  // Proxy que RESPONDE fica no Live (usável). Só vai pra "Bad" quem falha de
+  // verdade muitas vezes. Datacenter/lento continuam usáveis — só ganham rótulo.
+  return (p?.fail_count ?? 0) >= 5;
 }
 
 function ProxyTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {

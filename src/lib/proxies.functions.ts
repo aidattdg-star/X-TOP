@@ -118,15 +118,16 @@ export const testProxyConnection = createServerFn({ method: "POST" })
     const DC = /(amazon|aws|google|gcp|microsoft|azure|digitalocean|ovh|hetzner|linode|akamai|vultr|choopa|m247|leaseweb|contabo|oracle|alibaba|tencent|datacamp|g[\s-]?core|colo|host(ing)?|data\s?cent|\bvps\b|dedicated|cloud)/i;
     const looksDatacenter = isHosting || isProxyFlag || (!!ispOrg && DC.test(ispOrg));
 
-    // 3) VEREDITO
-    let quality: ProxyQuality | "unknown";
+    // 3) VEREDITO — regra: proxy que RESPONDE é usável (fica no Live). A
+    //    classificação datacenter/residencial é só um RÓTULO informativo; nunca
+    //    tira do Live. Só sai do Live se de fato não funcionar (morto/transparente).
+    let quality: ProxyQuality;
     let detail = "";
     if (!reachable) { quality = "dead"; detail = lastDetail || "não respondeu"; }
     else if (transparent) { quality = "dead"; detail = "transparente: não troca o IP (inútil p/ isolar conta)"; }
-    else if (looksDatacenter && !isMobile) { quality = "datacenter"; detail = "IP de datacenter/VPN — alto risco no X"; }
-    else if (!classified) { quality = "unknown"; detail = "responde, mas não deu p/ confirmar a qualidade — teste de novo"; }
-    else if (latency_ms > 3500) { quality = "slow"; detail = `residencial, porém lento (${latency_ms}ms)`; }
-    else { quality = "good"; detail = isMobile ? "residencial/móvel" : "residencial"; }
+    else if (looksDatacenter && !isMobile) { quality = "datacenter"; detail = "responde (usável) — mas o IP parece datacenter/VPN"; }
+    else if (latency_ms > 6000) { quality = "slow"; detail = `responde (usável), porém lento (${latency_ms}ms)`; }
+    else { quality = "good"; detail = classified ? (isMobile ? "residencial/móvel" : "residencial") : "respondeu OK"; }
 
     const status = reachable && !transparent ? "active" : "dead";
     await context.supabase
