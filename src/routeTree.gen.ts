@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedQuarantineRouteImport } from './routes/_authenticated/quarantine'
 import { Route as AuthenticatedPostTweetRouteImport } from './routes/_authenticated/post-tweet'
+import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
 import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedMediaRouteImport } from './routes/_authenticated/media'
 import { Route as AuthenticatedMassEngageRouteImport } from './routes/_authenticated/mass-engage'
@@ -63,6 +64,12 @@ const AuthenticatedPostTweetRoute = AuthenticatedPostTweetRouteImport.update({
   path: '/post-tweet',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPerformanceRoute =
+  AuthenticatedPerformanceRouteImport.update({
+    id: '/performance',
+    path: '/performance',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
   id: '/monitoring',
   path: '/monitoring',
@@ -177,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/mass-engage': typeof AuthenticatedMassEngageRoute
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
+  '/performance': typeof AuthenticatedPerformanceRoute
   '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/quarantine': typeof AuthenticatedQuarantineRoute
   '/automations/': typeof AuthenticatedAutomationsIndexRoute
@@ -201,6 +209,7 @@ export interface FileRoutesByTo {
   '/mass-engage': typeof AuthenticatedMassEngageRoute
   '/media': typeof AuthenticatedMediaRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
+  '/performance': typeof AuthenticatedPerformanceRoute
   '/post-tweet': typeof AuthenticatedPostTweetRoute
   '/quarantine': typeof AuthenticatedQuarantineRoute
   '/automations': typeof AuthenticatedAutomationsIndexRoute
@@ -228,6 +237,7 @@ export interface FileRoutesById {
   '/_authenticated/mass-engage': typeof AuthenticatedMassEngageRoute
   '/_authenticated/media': typeof AuthenticatedMediaRoute
   '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
+  '/_authenticated/performance': typeof AuthenticatedPerformanceRoute
   '/_authenticated/post-tweet': typeof AuthenticatedPostTweetRoute
   '/_authenticated/quarantine': typeof AuthenticatedQuarantineRoute
   '/_authenticated/automations/': typeof AuthenticatedAutomationsIndexRoute
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/mass-engage'
     | '/media'
     | '/monitoring'
+    | '/performance'
     | '/post-tweet'
     | '/quarantine'
     | '/automations/'
@@ -279,6 +290,7 @@ export interface FileRouteTypes {
     | '/mass-engage'
     | '/media'
     | '/monitoring'
+    | '/performance'
     | '/post-tweet'
     | '/quarantine'
     | '/automations'
@@ -305,6 +317,7 @@ export interface FileRouteTypes {
     | '/_authenticated/mass-engage'
     | '/_authenticated/media'
     | '/_authenticated/monitoring'
+    | '/_authenticated/performance'
     | '/_authenticated/post-tweet'
     | '/_authenticated/quarantine'
     | '/_authenticated/automations/'
@@ -369,6 +382,13 @@ declare module '@tanstack/react-router' {
       path: '/post-tweet'
       fullPath: '/post-tweet'
       preLoaderRoute: typeof AuthenticatedPostTweetRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/performance': {
+      id: '/_authenticated/performance'
+      path: '/performance'
+      fullPath: '/performance'
+      preLoaderRoute: typeof AuthenticatedPerformanceRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/monitoring': {
@@ -532,6 +552,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedMassEngageRoute: typeof AuthenticatedMassEngageRoute
   AuthenticatedMediaRoute: typeof AuthenticatedMediaRoute
   AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
+  AuthenticatedPerformanceRoute: typeof AuthenticatedPerformanceRoute
   AuthenticatedPostTweetRoute: typeof AuthenticatedPostTweetRoute
   AuthenticatedQuarantineRoute: typeof AuthenticatedQuarantineRoute
 }
@@ -548,6 +569,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedMassEngageRoute: AuthenticatedMassEngageRoute,
   AuthenticatedMediaRoute: AuthenticatedMediaRoute,
   AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
+  AuthenticatedPerformanceRoute: AuthenticatedPerformanceRoute,
   AuthenticatedPostTweetRoute: AuthenticatedPostTweetRoute,
   AuthenticatedQuarantineRoute: AuthenticatedQuarantineRoute,
 }

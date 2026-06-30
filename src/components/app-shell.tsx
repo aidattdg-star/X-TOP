@@ -18,6 +18,7 @@ import {
   Send,
   EyeOff,
   Users2,
+  TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ const nav = [
 ] as const;
 
 const ADMIN_NAV = { to: "/admin", label: "Admin", icon: ShieldCheck } as const;
+const PERF_NAV = { to: "/performance", label: "Performance", icon: TrendingUp } as const;
 
 const STORAGE_KEY = "mimix.sidebar.collapsed";
 
@@ -73,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  const navItems = isAdmin ? [...nav, ADMIN_NAV] : [...nav];
+  const navItems = isAdmin ? [...nav, PERF_NAV, ADMIN_NAV] : [...nav];
 
   function toggle() {
     setCollapsed((c) => {
