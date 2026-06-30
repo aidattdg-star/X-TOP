@@ -225,8 +225,16 @@ function AccountsPage() {
     setTesting(id);
     try {
       const res = await runTestProxy({ data: { proxy_id: id } });
-      if (res.status === "active") {
-        toast.success(`Proxy OK · ${res.latency_ms}ms${res.exit_ip ? ` · IP ${res.exit_ip}` : ""}`);
+      const q = (res as any).quality as string | undefined;
+      const qLabel = q === "good" ? "BOM (residencial)"
+        : q === "slow" ? "lento"
+        : q === "datacenter" ? "DATACENTER — troque"
+        : q === "unknown" ? "não confirmado — teste de novo"
+        : "morto";
+      if (res.status === "active" && q === "good") {
+        toast.success(`Proxy ${qLabel} · ${res.latency_ms}ms${res.exit_ip ? ` · IP ${res.exit_ip}` : ""}`);
+      } else if (res.status === "active") {
+        toast.warning(`Proxy ${qLabel}${res.detail ? ` · ${res.detail}` : ""}${res.latency_ms ? ` · ${res.latency_ms}ms` : ""}`);
       } else {
         toast.error(`Proxy falhou${res.detail ? `: ${res.detail}` : ""}`);
       }
@@ -769,7 +777,8 @@ function isDieProxy(p: any): boolean {
   return p?.status === "dead" || p?.quality === "dead";
 }
 function isBadProxy(p: any): boolean {
-  return p?.quality === "datacenter" || p?.quality === "slow" || (p?.fail_count ?? 0) >= 5;
+  // "unknown" = respondeu mas não deu pra confirmar residencial — não entra no Live (que é só BOM).
+  return p?.quality === "datacenter" || p?.quality === "slow" || p?.quality === "unknown" || (p?.fail_count ?? 0) >= 5;
 }
 
 function ProxyTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -794,6 +803,7 @@ function QualityBadge({ quality, latency, fails }: { quality?: string | null; la
     slow: { label: "Lento", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
     datacenter: { label: "Datacenter — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
     dead: { label: "Morto — troque", cls: "border-red-500/40 text-red-400 bg-red-500/10" },
+    unknown: { label: "Não confirmado", cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
   };
   const q = map[quality] ?? { label: quality, cls: "border-border text-muted-foreground" };
   return (

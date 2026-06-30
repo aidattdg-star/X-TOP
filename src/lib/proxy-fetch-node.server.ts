@@ -12,6 +12,7 @@ interface ProxyFetchInit {
   method?: string;
   headers?: Record<string, string>;
   body?: string | Uint8Array;
+  signal?: AbortSignal;
 }
 
 // Limpa lixo comum vindo de listas (aspas, espaços, ":" sobrando, esquema).
@@ -51,5 +52,6 @@ export async function nodeProxyFetch(
     headers,
     body: init.body as any,
     dispatcher: agent,
+    signal: init.signal,
   });
 }
