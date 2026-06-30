@@ -9,7 +9,7 @@ import { ProxyModal } from "@/components/accounts/proxy-modal";
 import { AccountModal } from "@/components/accounts/account-modal";
 import { EditProfileModal } from "@/components/accounts/edit-profile-modal";
 import { Badge } from "@/components/ui/badge";
-import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff, Flame } from "lucide-react";
+import { Server, AtSign, Loader2, Trash2, Send, ChevronLeft, Folder, FolderOpen, Layers, Ban, Plus, Activity, EyeOff, Flame, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { testTwitterAccount, testPostTweets } from "@/lib/accounts.functions";
 import { testAccountsOnline, checkShadowban, syncFollowerCounts } from "@/lib/account-profile.functions";
@@ -45,6 +45,35 @@ function AccountsPage() {
   const [checkingSb, setCheckingSb] = useState(false);
   const [sbDone, setSbDone] = useState({ done: 0, total: 0, sb: 0 });
   const [syncingFollowers, setSyncingFollowers] = useState(false);
+  const [releasingRefresh, setReleasingRefresh] = useState(false);
+
+  // Tira as contas do refresh (zera cooldown + cota) pra poder usar de novo já.
+  async function releaseRefresh() {
+    const ids = (accounts ?? [])
+      .filter((a: any) => a.cooldown_until && Date.parse(a.cooldown_until) > Date.now())
+      .map((a: any) => a.id as string);
+    if (!ids.length) return toast.info("Nenhuma conta em refresh agora.");
+    if (!confirm(`Tirar ${ids.length} conta(s) do refresh (cooldown pós-RT)? Elas voltam a ser usadas imediatamente.`)) return;
+    setReleasingRefresh(true);
+    try {
+      const { error } = await supabase
+        .from("twitter_accounts")
+        .update({ cooldown_until: null, rt_count: 0, like_count: 0 } as never)
+        .in("id", ids);
+      if (error) {
+        // colunas rt_count/like_count podem não existir — tenta só o cooldown
+        const { error: e2 } = await supabase
+          .from("twitter_accounts").update({ cooldown_until: null } as never).in("id", ids);
+        if (e2) throw e2;
+      }
+      toast.success(`${ids.length} conta(s) liberadas do refresh — já dá pra usar.`);
+      qc.invalidateQueries({ queryKey: ["twitter_accounts"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao liberar refresh");
+    } finally {
+      setReleasingRefresh(false);
+    }
+  }
 
   // Verifica shadowban (search ban) em lotes; quem estiver em shadowban vai pra Quarentena.
   async function checkAllShadowban() {
@@ -182,6 +211,11 @@ function AccountsPage() {
       return data ?? [];
     },
   });
+  // Contas em "refresh" (cooldown pós-RT/like) — descansam 60min antes de novo uso.
+  const refreshCount = (accounts ?? []).filter(
+    (a: any) => a.cooldown_until && Date.parse(a.cooldown_until) > Date.now(),
+  ).length;
+
   // null = visão de pastas (cards). "__all__"/"__none__"/id = vendo contas de uma pasta.
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
 
@@ -335,6 +369,12 @@ function AccountsPage() {
               {syncingFollowers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Flame className="h-4 w-4 mr-2" strokeWidth={1.5} />}
               {syncingFollowers ? "Sincronizando..." : "Sync seguidores"}
             </Button>
+            {refreshCount > 0 && (
+              <Button variant="outline" onClick={releaseRefresh} disabled={releasingRefresh} className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+                {releasingRefresh ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" strokeWidth={1.5} />}
+                {releasingRefresh ? "Liberando..." : `Tirar do refresh (${refreshCount})`}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setProxyOpen(true)}>
               <Server className="h-4 w-4 mr-2" strokeWidth={1.5} /> Novo proxy
             </Button>
