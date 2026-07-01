@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   Plus, Trash2, Rocket, Heart, Repeat2, Link as LinkIcon, Users2, MessageCircle,
-  Zap, Timer, Rabbit, Footprints, Turtle, Moon, Gauge, FolderInput, FolderTree,
+  Zap, Timer, Rabbit, Footprints, Turtle, Moon, Gauge, FolderInput, FolderTree, Dice5,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/mass-engage")({
   component: MassEnagePage,
 });
 
-type Account = { id: string; username: string; status: string | null; cooldown_until?: string | null; folder_id?: string | null };
+type Account = { id: string; username: string; status: string | null; cooldown_until?: string | null; folder_id?: string | null; last_used_at?: string | null };
 type Folder = { id: string; name: string };
 type Block = { id: string; tweet_url: string; account_ids: string[] };
 
@@ -54,7 +54,7 @@ function MassEnagePage() {
       await supabase.auth.getSession();
       const { data, error } = await supabase
         .from("twitter_accounts")
-        .select("id, username, status, cooldown_until, folder_id")
+        .select("id, username, status, cooldown_until, folder_id, last_used_at")
         .order("username");
       if (error) throw error;
       return (data ?? []) as Account[];
@@ -88,6 +88,7 @@ function MassEnagePage() {
   ]);
   // Filtro de pasta por bloco (apenas visual: "__all__" | "__none__" | folderId)
   const [blockFilters, setBlockFilters] = useState<Record<string, string>>({});
+  const [randomCount, setRandomCount] = useState(10);
   const [doLike, setDoLike] = useState(true);
   const [doRetweet, setDoRetweet] = useState(true);
   const [doComment, setDoComment] = useState(false);
@@ -407,6 +408,30 @@ function MassEnagePage() {
               );
               const allShownOn = shownAccts.length > 0 && shownAccts.every((a) => block.account_ids.includes(a.id));
               const setBf = (v: string) => setBlockFilters((m) => ({ ...m, [block.id]: v }));
+
+              // Sorteia N contas AINDA NÃO USADAS (prioriza nunca usadas, depois as mais
+              // antigas), do filtro atual, sem repetir contas já escolhidas em outros blocos.
+              const usedElsewhere = new Set(
+                blocks.filter((b) => b.id !== block.id).flatMap((b) => b.account_ids),
+              );
+              const shuffle = <T,>(arr: T[]): T[] => {
+                const x = arr.slice();
+                for (let k = x.length - 1; k > 0; k--) {
+                  const j = Math.floor(Math.random() * (k + 1));
+                  [x[k], x[j]] = [x[j], x[k]];
+                }
+                return x;
+              };
+              const unusedPoolCount = shownAccts.filter((a) => !usedElsewhere.has(a.id) && !a.last_used_at).length;
+              const pickRandomUnused = (n: number) => {
+                const pool = shownAccts.filter((a) => !usedElsewhere.has(a.id));
+                const never = shuffle(pool.filter((a) => !a.last_used_at));
+                const older = pool
+                  .filter((a) => a.last_used_at)
+                  .sort((a, b) => Date.parse(a.last_used_at!) - Date.parse(b.last_used_at!));
+                const picked = [...never, ...older].slice(0, Math.max(1, n)).map((a) => a.id);
+                updateBlock(block.id, { account_ids: picked });
+              };
               return (
               <div key={block.id} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -430,10 +455,10 @@ function MassEnagePage() {
                   className="bg-white/[0.04] border-white/10 focus-visible:border-brand/40"
                 />
                 <div>
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-2 gap-2">
                     <Label className="text-xs text-muted-foreground">Contas que vão engajar neste link</Label>
                     <button
-                      className="text-xs text-brand hover:underline"
+                      className="text-xs text-brand hover:underline shrink-0"
                       onClick={() => {
                         const shownIds = shownAccts.map((a) => a.id);
                         updateBlock(block.id, {
@@ -445,6 +470,37 @@ function MassEnagePage() {
                     >
                       {allShownOn ? "Limpar visíveis" : "Selecionar todas"}
                     </button>
+                  </div>
+
+                  {/* Sortear N contas não usadas (aleatório) */}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-2 py-1.5">
+                    <Dice5 className="h-3.5 w-3.5 text-brand shrink-0" />
+                    <span className="text-[11px] text-muted-foreground mr-0.5">Sortear não usadas:</span>
+                    {[10, 20, 30].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => { setRandomCount(n); pickRandomUnused(n); }}
+                        className="text-[11px] px-2 py-0.5 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-foreground"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min={1}
+                      value={randomCount}
+                      onChange={(e) => setRandomCount(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-14 text-[11px] px-2 py-0.5 rounded-md border border-white/10 bg-white/[0.04] focus:outline-none focus:border-brand/40 tabular-nums"
+                    />
+                    <button
+                      onClick={() => pickRandomUnused(randomCount)}
+                      className="text-[11px] px-2 py-0.5 rounded-md bg-brand/90 hover:bg-brand text-white font-medium"
+                    >
+                      Sortear {randomCount}
+                    </button>
+                    <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
+                      {unusedPoolCount} nunca usadas disponíveis
+                    </span>
                   </div>
                   {/* Filtro por pasta */}
                   <div className="flex flex-wrap gap-1.5 mb-2">
