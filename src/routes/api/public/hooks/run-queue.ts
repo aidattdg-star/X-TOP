@@ -615,12 +615,12 @@ async function runTask(admin: any, task: any) {
         const type = (config.action_type as string) || "like";
         if (type === "like") {
           await likeTweet(tokens, id, dispatcher);
-          await bumpAndMaybeCooldown(admin, acc.id, "like");
+          await bumpAndMaybeCooldown(admin, acc.id, "like", true);
           await log(admin, task.user_id, task.flow_id, "info",
             `❤️ Like por @${acc.username}: https://x.com/i/status/${id}`, task.twitter_account_id);
         } else if (type === "retweet") {
           await retweet(tokens, id, dispatcher);
-          await bumpAndMaybeCooldown(admin, acc.id, "retweet");
+          await bumpAndMaybeCooldown(admin, acc.id, "retweet", true);
           await log(admin, task.user_id, task.flow_id, "info",
             `🔁 Retweet por @${acc.username}: https://x.com/i/status/${id}`, task.twitter_account_id);
         } else throw new Error(`mass_engage tipo '${type}' não implementado`);
@@ -957,9 +957,22 @@ async function bumpAndMaybeCooldown(
   admin: any,
   accountId: string | null | undefined,
   kind: "retweet" | "like",
+  immediate1h = false,
 ): Promise<void> {
   if (!accountId) return;
   try {
+    // Modo mass-engage: após 1 uso a conta descansa 1h (não pode ser reusada antes).
+    if (immediate1h) {
+      const now = new Date().toISOString();
+      const cd = new Date(Date.now() + COOLDOWN_MIN * 60_000).toISOString();
+      const { error } = await admin.from("twitter_accounts")
+        .update({ cooldown_until: cd, last_used_at: now, rt_count: 0, like_count: 0 }).eq("id", accountId);
+      if (error) {
+        // colunas rt_count/like_count podem não existir — grava só o cooldown
+        await admin.from("twitter_accounts").update({ cooldown_until: cd, last_used_at: now }).eq("id", accountId);
+      }
+      return;
+    }
     const { data: a } = await admin
       .from("twitter_accounts").select("rt_count, like_count").eq("id", accountId).maybeSingle();
     let rt = Number(a?.rt_count ?? 0);
